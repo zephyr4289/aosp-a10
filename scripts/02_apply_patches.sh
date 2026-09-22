@@ -19,10 +19,17 @@ _ok "patched: qassa_PL2.mk, AndroidProducts.mk"
 
 _log "Validating lunch target (kati/soong product resolution)..."
 cd "${AOSP_ROOT}"
+
+# AOSP envsetup.sh and lunch contain unassigned variables and non-zero subshell exits
+# incompatible with set -e / set -u. Temporarily disable them.
+set +eu
 # shellcheck disable=SC1091
-source build/envsetup.sh >/dev/null 2>&1
-lunch "${LUNCH_COMBO}" >/dev/null 2>&1 \
-  || _die "lunch ${LUNCH_COMBO} failed — check device tree + product mk files"
+source build/envsetup.sh
+lunch "${LUNCH_COMBO}"
+LUNCH_RC=$?
+set -euo pipefail
+
+[ "${LUNCH_RC}" -eq 0 ] || _die "lunch ${LUNCH_COMBO} failed (rc=${LUNCH_RC}) — check device tree + product mk files"
 
 _ok "lunch ${LUNCH_COMBO} resolves. Tree is buildable."
 check_disk "after lunch validation"

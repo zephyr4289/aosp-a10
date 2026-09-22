@@ -42,9 +42,14 @@ export LC_ALL=C                             # old AOSP perl/python scripts hate 
 export WITH_DEXPREOPT="${WITH_DEXPREOPT}"   # false = huge out/ + time savings
 
 cd "${AOSP_ROOT}"
+set +eu
 # shellcheck disable=SC1091
-source build/envsetup.sh >/dev/null 2>&1
-lunch "${LUNCH_COMBO}" >/dev/null 2>&1 || _die "lunch ${LUNCH_COMBO} failed"
+source build/envsetup.sh
+lunch "${LUNCH_COMBO}"
+LUNCH_RC=$?
+set -euo pipefail
+
+[ "${LUNCH_RC}" -eq 0 ] || _die "lunch ${LUNCH_COMBO} failed (rc=${LUNCH_RC})"
 
 SOONG_UI="${AOSP_ROOT}/build/soong/soong_ui.bash"
 [ -x "${SOONG_UI}" ] || _die "soong_ui not found at ${SOONG_UI}"
