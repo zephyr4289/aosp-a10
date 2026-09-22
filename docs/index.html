@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AOSP Build Dashboard · QASSA 2.4 (PL2)</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --card-border: #1f2937;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.25);
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.2);
+      --warning: #f59e0b;
+      --error: #ef4444;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      padding: 12px;
+      line-height: 1.4;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Header */
+    .header-card {
+      background: linear-gradient(135deg, #111827 0%, #1e1b4b 100%);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .header-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #38bdf8, #818cf8, #c084fc);
+    }
+
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .title-group h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+      padding: 2px 8px;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .badge-running {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+    }
+
+    .badge-success {
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+
+    .badge-idle {
+      background: rgba(156, 163, 175, 0.15);
+      color: #9ca3af;
+      border: 1px solid rgba(156, 163, 175, 0.4);
+    }
+
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: currentColor;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    .meta-sub {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-family: var(--font-mono);
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .stat-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+
+    .stat-val {
+      font-size: 1.25rem;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .stat-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* Progress & Slice Meter */
+    .meter-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .meter-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      font-family: var(--font-mono);
+    }
+
+    .progress-bar-container {
+      width: 100%;
+      height: 12px;
+      background: #1f2937;
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+      border: 1px solid #374151;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #38bdf8, #818cf8);
+      border-radius: 999px;
+      transition: width 0.5s ease;
+      position: relative;
+    }
+
+    .progress-bar-fill.active {
+      background-size: 30px 30px;
+      background-image: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.15) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.15) 50%,
+        rgba(255, 255, 255, 0.15) 75%,
+        transparent 75%,
+        transparent
+      );
+      animation: barberpole 2s linear infinite;
+    }
+
+    @keyframes barberpole {
+      0% { background-position: 0 0; }
+      100% { background-position: 60px 0; }
+    }
+
+    /* Pipeline Stages */
+    .stages-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .section-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #e5e7eb;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .stage-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .stage-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+    }
+
+    .stage-item.in_progress {
+      background: rgba(56, 189, 248, 0.08);
+      border-color: rgba(56, 189, 248, 0.3);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.1);
+    }
+
+    .stage-item.completed {
+      border-color: rgba(16, 185, 129, 0.2);
+    }
+
+    .stage-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .stage-icon {
+      width: 18px;
+      text-align: center;
+      font-weight: bold;
+    }
+
+    .stage-item.completed .stage-icon { color: var(--success); }
+    .stage-item.in_progress .stage-icon { color: var(--accent); animation: spin 2s linear infinite; }
+    .stage-item.queued .stage-icon { color: var(--text-muted); }
+    .stage-item.failed .stage-icon { color: var(--error); }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .stage-time {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    /* Releases & Assets Card */
+    .releases-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .releases-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px;
+    }
+
+    .release-box {
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+    }
+
+    .release-tag {
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    /* Settings & Controls */
+    .controls-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+    }
+
+    .api-quota-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn {
+      background: #1f2937;
+      color: var(--text);
+      border: 1px solid #374151;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn:hover {
+      background: #374151;
+    }
+
+    .token-input {
+      background: #0b0f19;
+      border: 1px solid #374151;
+      color: #fff;
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      width: 140px;
+    }
+
+    .token-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header-card">
+      <div class="header-top">
+        <div class="title-group">
+          <h1>
+            <span>QASSA 2.4 · Nokia 6.1 (PL2)</span>
+          </h1>
+          <div class="meta-sub">
+            Target: <span style="color:#fff;">qassa_PL2-userdebug</span> (bacon) · Repo: <span style="color:var(--accent);">zephyr4289/aosp-a10</span>
+          </div>
+        </div>
+        <div id="overall-badge" class="badge badge-idle">
+          <span class="pulse-dot"></span>
+          <span id="badge-text">CHECKING...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="stats-grid">
+      <!-- Total Elapsed Time (across all slices/campaign) -->
+      <div class="stat-card">
+        <div class="stat-label">Total Campaign Elapsed</div>
+        <div id="total-elapsed" class="stat-val">00:00:00</div>
+        <div id="campaign-start-sub" class="stat-sub">From initial dispatch</div>
+      </div>
+
+      <!-- Current Slice Elapsed & Countdown -->
+      <div class="stat-card">
+        <div class="stat-label">Active Slice Elapsed</div>
+        <div id="slice-elapsed" class="stat-val">00:00:00</div>
+        <div id="slice-remaining-sub" class="stat-sub">Budget: 160 min (02:40:00)</div>
+      </div>
+
+      <!-- Current Step / Status -->
+      <div class="stat-card">
+        <div class="stat-label">Active Step Duration</div>
+        <div id="step-elapsed" class="stat-val">00:00:00</div>
+        <div id="step-name-sub" class="stat-sub">Waiting for run...</div>
+      </div>
+
+      <!-- Slices Count & Run ID -->
+      <div class="stat-card">
+        <div class="stat-label">Workflow Run</div>
+        <div id="run-number" class="stat-val">#--</div>
+        <div id="run-id-sub" class="stat-sub">No active run</div>
+      </div>
+    </div>
+
+    <!-- Active Slice Watchdog Meter -->
+    <div class="meter-card">
+      <div class="meter-header">
+        <span id="meter-title">Slice 1 Watchdog Budget (160 min)</span>
+        <span id="meter-percent" style="color:var(--accent); font-weight:700;">0.0%</span>
+      </div>
+      <div class="progress-bar-container">
+        <div id="slice-progress-bar" class="progress-bar-fill"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted); font-family:var(--font-mono);">
+        <span id="meter-elapsed-txt">Elapsed: 00:00:00</span>
+        <span id="meter-remaining-txt">Remaining: 02:40:00</span>
+      </div>
+    </div>
+
+    <!-- Pipeline Stages -->
+    <div class="stages-card">
+      <div class="section-title">
+        <span>PIPELINE EXECUTION STAGES</span>
+        <span id="pipeline-status-text" style="font-size:0.75rem; font-family:var(--font-mono); color:var(--text-muted);">Idle</span>
+      </div>
+      <div id="stages-container" class="stage-list">
+        <!-- Injected dynamically -->
+      </div>
+    </div>
+
+    <!-- Releases & Storage Tracker -->
+    <div class="releases-card">
+      <div class="section-title">
+        <span>RELEASE STORAGE & ARTIFACTS</span>
+        <span id="releases-last-check" style="font-size:0.72rem; font-family:var(--font-mono); color:var(--text-muted);">Checking...</span>
+      </div>
+      <div class="releases-grid">
+        <div class="release-box" id="rel-source-cache">
+          <div class="release-tag">
+            <span>📦 source-cache</span>
+            <span id="rel-source-status" style="color:var(--text-muted);">Checking...</span>
+          </div>
+          <div id="rel-source-desc" style="color:var(--text-muted);">Synced AOSP 10 source snapshot</div>
+        </div>
+
+        <div class="release-box" id="rel-ccache-cache">
+          <div class="release-tag">
+            <span>⚡ ccache-cache</span>
+            <span id="rel-ccache-status" style="color:var(--text-muted);">Checking...</span>
+          </div>
+          <div id="rel-ccache-desc" style="color:var(--text-muted);">Chained compilation cache</div>
+        </div>
+
+        <div class="release-box" id="rel-rom">
+          <div class="release-tag">
+            <span>🎉 ROM Release</span>
+            <span id="rel-rom-status" style="color:var(--text-muted);">Checking...</span>
+          </div>
+          <div id="rel-rom-desc" style="color:var(--text-muted);">Flashable QASSA zip + SHA256</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls & Rate Limit Guard -->
+    <div class="controls-card">
+      <div class="api-quota-box">
+        <span>API Rate Limit: <strong id="api-remaining" style="color:#fff;">60</strong>/<span id="api-limit">60</span></span>
+        <span id="api-reset-txt" style="color:var(--text-muted);">(resets in --m)</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <input type="password" id="gh-token-input" class="token-input" placeholder="Optional GitHub PAT" title="Optional: Paste a GitHub token for 5,000 req/hr rate limit" />
+        <button id="save-token-btn" class="btn">Save Token</button>
+        <button id="refresh-btn" class="btn">↻ Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Configuration
+    const REPO_OWNER = "zephyr4289";
+    const REPO_NAME = "aosp-a10";
+    const SLICE_BUDGET_SECONDS = 9600; // 160 minutes
+
+    // Known Pipeline Steps in order
+    const STAGE_DEFINITIONS = [
+      { id: "gate", name: "00. Gate Check (already built?)", key: "Gate" },
+      { id: "prepare", name: "00. Prepare Runner (disk & swap)", key: "00 - Prepare" },
+      { id: "restore", name: "05. Restore Caches (source & ccache)", key: "05 - Restore" },
+      { id: "sync", name: "01. Sync Source (QASSA + PL2)", key: "01 - Sync" },
+      { id: "patch", name: "02. Apply Patches & Validate Lunch", key: "02 - Apply" },
+      { id: "build", name: "03. Build Slice (160 min watchdog)", key: "03 - Build" },
+      { id: "publish", name: "06. Publish ROM (if completed)", key: "06 - Publish" },
+      { id: "upload_ccache", name: "04. Persist Ccache to Release", key: "Persist ccache" },
+      { id: "upload_src", name: "04. Persist Source Cache", key: "Persist source" }
+    ];
+
+    // State Variables
+    let currentRun = null;
+    let currentJob = null;
+    let allRuns = [];
+    let campaignStartTime = null;
+    let pollInterval = 20000; // 20s poll to never burn 60 req/hr rate limit
+    let lastPollTime = 0;
+    let isFetching = false;
+
+    // Load Token if stored
+    const tokenInput = document.getElementById("gh-token-input");
+    const savedToken = localStorage.getItem("gh_pat");
+    if (savedToken) {
+      tokenInput.value = savedToken;
+      pollInterval = 10000; // Faster poll allowed with token
+    }
+
+    document.getElementById("save-token-btn").addEventListener("click", () => {
+      const val = tokenInput.value.trim();
+      if (val) {
+        localStorage.setItem("gh_pat", val);
+        alert("GitHub Token saved! Rate limit raised to 5,000 req/hr.");
+        pollInterval = 10000;
+      } else {
+        localStorage.removeItem("gh_pat");
+        alert("Token cleared.");
+        pollInterval = 20000;
+      }
+      fetchData();
+    });
+
+    document.getElementById("refresh-btn").addEventListener("click", () => {
+      fetchData();
+    });
+
+    function getHeaders() {
+      const headers = { "Accept": "application/vnd.github.v3+json" };
+      const token = localStorage.getItem("gh_pat");
+      if (token) {
+        headers["Authorization"] = `token ${token}`;
+      }
+      return headers;
+    }
+
+    // Format Seconds to HH:MM:SS
+    function formatDuration(totalSeconds) {
+      if (isNaN(totalSeconds) || totalSeconds < 0) totalSeconds = 0;
+      const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
+      const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
+      const s = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
+      return `${h}:${m}:${s}`;
+    }
+
+    // Live 1-Second Timer Tick (Interpolation)
+    function tick() {
+      const now = Date.now();
+
+      // 1. Total Campaign Elapsed Time
+      if (campaignStartTime) {
+        const totalSec = Math.floor((now - campaignStartTime) / 1000);
+        document.getElementById("total-elapsed").innerText = formatDuration(totalSec);
+      } else {
+        document.getElementById("total-elapsed").innerText = "00:00:00";
+      }
+
+      // 2. Active Run / Slice Elapsed Time
+      if (currentRun && currentRun.status === "in_progress") {
+        const runStart = new Date(currentRun.run_started_at || currentRun.created_at).getTime();
+        const sliceSec = Math.max(0, Math.floor((now - runStart) / 1000));
+        document.getElementById("slice-elapsed").innerText = formatDuration(sliceSec);
+
+        // Slice Watchdog calculation (160 min budget = 9600s)
+        const budgetPercent = Math.min(100, (sliceSec / SLICE_BUDGET_SECONDS) * 100);
+        const remSec = Math.max(0, SLICE_BUDGET_SECONDS - sliceSec);
+        
+        const progressBar = document.getElementById("slice-progress-bar");
+        progressBar.style.width = `${budgetPercent.toFixed(1)}%`;
+        progressBar.classList.add("active");
+        
+        document.getElementById("meter-percent").innerText = `${budgetPercent.toFixed(1)}%`;
+        document.getElementById("meter-elapsed-txt").innerText = `Elapsed: ${formatDuration(sliceSec)}`;
+        document.getElementById("meter-remaining-txt").innerText = `Remaining: ${formatDuration(remSec)}`;
+      } else if (currentRun && currentRun.conclusion) {
+        const runStart = new Date(currentRun.run_started_at || currentRun.created_at).getTime();
+        const runEnd = new Date(currentRun.updated_at).getTime();
+        const totalSec = Math.max(0, Math.floor((runEnd - runStart) / 1000));
+        document.getElementById("slice-elapsed").innerText = formatDuration(totalSec);
+        document.getElementById("slice-progress-bar").classList.remove("active");
+      }
+
+      // 3. Active Step Elapsed Time
+      if (currentJob && currentJob.steps) {
+        const activeStep = currentJob.steps.find(s => s.status === "in_progress");
+        if (activeStep && activeStep.started_at) {
+          const stepStart = new Date(activeStep.started_at).getTime();
+          const stepSec = Math.max(0, Math.floor((now - stepStart) / 1000));
+          document.getElementById("step-elapsed").innerText = formatDuration(stepSec);
+          document.getElementById("step-name-sub").innerText = activeStep.name;
+        } else {
+          const lastCompleted = [...currentJob.steps].reverse().find(s => s.status === "completed");
+          if (lastCompleted) {
+            document.getElementById("step-name-sub").innerText = `Completed: ${lastCompleted.name}`;
+          }
+        }
+      }
+
+      // Check if it's time to poll API again
+      if (now - lastPollTime >= pollInterval && !isFetching) {
+        fetchData();
+      }
+    }
+
+    // Render Pipeline Stages UI
+    function renderStages(jobSteps) {
+      const container = document.getElementById("stages-container");
+      container.innerHTML = "";
+
+      STAGE_DEFINITIONS.forEach(def => {
+        let matchedStep = null;
+        if (jobSteps) {
+          matchedStep = jobSteps.find(s => s.name.toLowerCase().includes(def.key.toLowerCase()));
+        }
+
+        const div = document.createElement("div");
+        div.className = "stage-item";
+
+        let icon = "○";
+        let statusClass = "queued";
+        let timeTxt = "Pending";
+
+        if (matchedStep) {
+          if (matchedStep.status === "completed") {
+            if (matchedStep.conclusion === "success") {
+              icon = "✓";
+              statusClass = "completed";
+              if (matchedStep.started_at && matchedStep.completed_at) {
+                const s = Math.floor((new Date(matchedStep.completed_at) - new Date(matchedStep.started_at)) / 1000);
+                timeTxt = `Finished (${formatDuration(s)})`;
+              } else {
+                timeTxt = "Completed";
+              }
+            } else if (matchedStep.conclusion === "skipped") {
+              icon = "↷";
+              statusClass = "skipped";
+              timeTxt = "Skipped (Cached)";
+            } else {
+              icon = "✗";
+              statusClass = "failed";
+              timeTxt = "Failed";
+            }
+          } else if (matchedStep.status === "in_progress") {
+            icon = "⚡";
+            statusClass = "in_progress";
+            if (matchedStep.started_at) {
+              const s = Math.floor((Date.now() - new Date(matchedStep.started_at)) / 1000);
+              timeTxt = `Running (${formatDuration(s)})`;
+            } else {
+              timeTxt = "Running";
+            }
+          }
+        }
+
+        div.classList.add(statusClass);
+        div.innerHTML = `
+          <div class="stage-left">
+            <span class="stage-icon">${icon}</span>
+            <span>${def.name}</span>
+          </div>
+          <span class="stage-time">${timeTxt}</span>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    // Fetch Workflow Runs & Jobs
+    async function fetchData() {
+      if (isFetching) return;
+      isFetching = true;
+      lastPollTime = Date.now();
+
+      try {
+        const headers = getHeaders();
+        const runsResp = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/runs?per_page=10`, { headers });
+        
+        // Update rate limits
+        const rem = runsResp.headers.get("x-ratelimit-remaining");
+        const limit = runsResp.headers.get("x-ratelimit-limit");
+        const reset = runsResp.headers.get("x-ratelimit-reset");
+        if (rem) document.getElementById("api-remaining").innerText = rem;
+        if (limit) document.getElementById("api-limit").innerText = limit;
+        if (reset) {
+          const resetMinutes = Math.max(0, Math.ceil((new Date(reset * 1000) - new Date()) / 60000));
+          document.getElementById("api-reset-txt").innerText = `(resets in ${resetMinutes}m)`;
+        }
+
+        if (!runsResp.ok) throw new Error(`HTTP ${runsResp.status}`);
+        const runsData = await runsResp.json();
+        allRuns = runsData.workflow_runs || [];
+
+        if (allRuns.length > 0) {
+          // Identify first bootstrap run timestamp to compute total campaign elapsed time
+          const earliestRun = allRuns[allRuns.length - 1];
+          campaignStartTime = new Date(earliestRun.created_at).getTime();
+          document.getElementById("campaign-start-sub").innerText = `Started ${new Date(campaignStartTime).toLocaleString()}`;
+
+          // Active run is the most recent
+          currentRun = allRuns[0];
+          document.getElementById("run-number").innerText = `#${currentRun.run_number}`;
+          document.getElementById("run-id-sub").innerText = `ID: ${currentRun.id}`;
+
+          const badge = document.getElementById("overall-badge");
+          const badgeText = document.getElementById("badge-text");
+
+          if (currentRun.status === "in_progress") {
+            badge.className = "badge badge-running";
+            badgeText.innerText = `RUNNING (SLICE #${allRuns.length})`;
+            document.getElementById("pipeline-status-text").innerText = `Slice #${allRuns.length} in progress`;
+          } else if (currentRun.status === "completed") {
+            if (currentRun.conclusion === "success") {
+              badge.className = "badge badge-success";
+              badgeText.innerText = "COMPLETED";
+              document.getElementById("pipeline-status-text").innerText = "Finished successfully";
+            } else {
+              badge.className = "badge badge-idle";
+              badgeText.innerText = currentRun.conclusion.toUpperCase();
+              document.getElementById("pipeline-status-text").innerText = `Ended with ${currentRun.conclusion}`;
+            }
+          }
+
+          // Fetch Job & Step details for current run
+          const jobsResp = await fetch(currentRun.jobs_url, { headers });
+          if (jobsResp.ok) {
+            const jobsData = await jobsResp.json();
+            if (jobsData.jobs && jobsData.jobs.length > 0) {
+              currentJob = jobsData.jobs[0];
+              renderStages(currentJob.steps);
+            }
+          }
+        } else {
+          document.getElementById("badge-text").innerText = "NO RUNS YET";
+          document.getElementById("pipeline-status-text").innerText = "Workflow has not run yet";
+          renderStages(null);
+        }
+
+        // Fetch Releases status
+        fetchReleases();
+      } catch (err) {
+        console.error("Fetch error:", err);
+      } finally {
+        isFetching = false;
+      }
+    }
+
+    // Fetch Releases Status
+    async function fetchReleases() {
+      try {
+        const headers = getHeaders();
+        const resp = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases`, { headers });
+        if (!resp.ok) return;
+        const releases = await resp.json();
+        document.getElementById("releases-last-check").innerText = `Checked at ${new Date().toLocaleTimeString()}`;
+
+        const sourceRel = releases.find(r => r.tag_name === "source-cache");
+        const ccacheRel = releases.find(r => r.tag_name === "ccache-cache");
+        const romRel = releases.find(r => r.tag_name === "rom");
+
+        if (sourceRel) {
+          const totalBytes = sourceRel.assets.reduce((sum, a) => sum + a.size, 0);
+          const mb = (totalBytes / (1024 * 1024)).toFixed(1);
+          document.getElementById("rel-source-status").innerHTML = `<span style="color:var(--success);">READY (${mb} MB)</span>`;
+        } else {
+          document.getElementById("rel-source-status").innerHTML = `<span style="color:var(--text-muted);">Not uploaded</span>`;
+        }
+
+        if (ccacheRel) {
+          const totalBytes = ccacheRel.assets.reduce((sum, a) => sum + a.size, 0);
+          const mb = (totalBytes / (1024 * 1024)).toFixed(1);
+          document.getElementById("rel-ccache-status").innerHTML = `<span style="color:var(--success);">READY (${mb} MB)</span>`;
+        } else {
+          document.getElementById("rel-ccache-status").innerHTML = `<span style="color:var(--text-muted);">Not uploaded</span>`;
+        }
+
+        if (romRel) {
+          const romAsset = romRel.assets.find(a => a.name.endsWith('.zip'));
+          const mb = romAsset ? (romAsset.size / (1024 * 1024)).toFixed(1) : "";
+          document.getElementById("rel-rom-status").innerHTML = `<span style="color:var(--success); font-weight:bold;">READY (${mb} MB)</span>`;
+        } else {
+          document.getElementById("rel-rom-status").innerHTML = `<span style="color:var(--text-muted);">Awaiting bacon</span>`;
+        }
+      } catch (e) {
+        console.error("Release fetch error:", e);
+      }
+    }
+
+    // Initial load and start 1-second clock
+    renderStages(null);
+    fetchData();
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>
