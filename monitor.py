@@ -126,8 +126,12 @@ def main():
                                                 if msg.startswith("PROGRESS:"):
                                                     try:
                                                         _, pct_s, cnt = msg.split(":", 2)
-                                                        build_pct = float(pct_s)
                                                         d, t = cnt.split("/", 1)
+                                                        # Ignore soong-bootstrap notices
+                                                        # (totals 1/140/141); real build is ~111k.
+                                                        if float(t.strip()) < 10000:
+                                                            continue
+                                                        build_pct = float(pct_s)
                                                         build_done, build_total = d.strip(), t.strip()
                                                     except Exception:
                                                         pass

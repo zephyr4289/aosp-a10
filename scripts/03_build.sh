@@ -82,7 +82,12 @@ T0=$(date +%s)
 BUILD_LOG="$HOME/build-slice.log"
 rm -f "$BUILD_LOG"
 
-setsid "${SOONG_UI}" --make-mode "${TARGET}" >"$BUILD_LOG" 2>&1 &
+_log "soong bootstrap/Kati is single-threaded and quiet for ~5-15 min — [alive] heartbeats prove breathing; first 5% notice starts ninja main."
+if command -v stdbuf >/dev/null 2>&1; then
+  setsid stdbuf -oL -eL "${SOONG_UI}" --make-mode "${TARGET}" >"$BUILD_LOG" 2>&1 &
+else
+  setsid "${SOONG_UI}" --make-mode "${TARGET}" >"$BUILD_LOG" 2>&1 &
+fi
 SOONG_PID=$!
 
 # Filtered console tail (background, killed after build; never affects RC).
@@ -108,11 +113,27 @@ echo "::group::Build output (throttled, full log in artifact on failure)"
 ) &
 TAIL_PID=$!
 
-# Disk monitor: log df every 5 min so ENOSPC is visible before the link spike.
+# Heartbeat + stuck alarm: breathing console lines every 2 min (elapsed, disk,
+# out/ size, top CPU hog) so the log never looks dead; loud warning — never
+# auto-kill — if BUILD_LOG sees zero writes for 45 min while soong is alive.
 (
   while true; do
-    sleep 300
-    df -h / | tail -1 | sed "s/^/[disk] /" || true
+    sleep 120
+    now=$(date +%s); elapsemin=$(( (now - T0) / 60 ))
+    dfline=$(df -h / 2>/dev/null | tail -1 | awk '{print $3"/"$2" used "$5" free "$4}')
+    outsz=$(du -sh "${AOSP_ROOT}/out" 2>/dev/null | cut -f1)
+    topproc=$(ps -eo pcpu,comm --sort=-pcpu 2>/dev/null | head -2 | tail -1 | tr -s ' ')
+    echo "[alive ${elapsemin}m] disk ${dfline:-?} out ${outsz:-?} top:${topproc:-?}"
+    if [ -f "$BUILD_LOG" ] && kill -0 "$SOONG_PID" 2>/dev/null; then
+      if [ -n "$(find "$BUILD_LOG" -mmin +45 2>/dev/null)" ]; then
+        echo "[STUCK-ALARM] no build output for 45+ min (elapsed ${elapsemin}m) — dumping diagnostics (warn only, build continues)"
+        ps -eo pid,pcpu,pmem,etime,comm --sort=-pcpu 2>/dev/null | head -6 || true
+        free -h 2>/dev/null || true
+        df -h / 2>/dev/null | tail -2 || true
+        dmesg 2>/dev/null | tail -5 || true
+        tail -n 5 "$BUILD_LOG" 2>/dev/null || true
+      fi
+    fi
   done
 ) &
 DISKMON=$!
