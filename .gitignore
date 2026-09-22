@@ -8,3 +8,5 @@ upload/
 .dl-*/
 .aosp_incoming/
 .ccache_incoming/
+__pycache__/
+*.pyc
