@@ -84,11 +84,11 @@ pack_split() {
   _log "Packing ${member} -> ${prefix} parts (this can take 10-25 min)..."
   if [ -n "$exclude" ]; then
     tar -C "$dir" -cf - --exclude="${exclude}" "${member}" \
-      | zstd -T0 -3 -o - \
+      | zstd -T0 -3 -c \
       | split -b 1900M - "${outdir}/${prefix}.part."
   else
     tar -C "$dir" -cf - "${member}" \
-      | zstd -T0 -3 -o - \
+      | zstd -T0 -3 -c \
       | split -b 1900M - "${outdir}/${prefix}.part."
   fi
   ( cd "$outdir" && cat "${prefix}".part.* | sha256sum > SHA256SUMS )
@@ -109,10 +109,10 @@ unpack_split() {  # unpack_split <dl-dir> <prefix> <dest-dir> [--strip]
   fi
   _log "Unpacking ${prefix} -> ${dest} ..."
   if [ "$strip" = "--strip" ]; then
-    cat "${dldir}/${prefix}".part.* | zstd -d -T0 \
+    cat "${dldir}/${prefix}".part.* | zstd -d -T0 -c \
       | tar -C "$dest" --strip-components=1 -xf -
   else
-    cat "${dldir}/${prefix}".part.* | zstd -d -T0 \
+    cat "${dldir}/${prefix}".part.* | zstd -d -T0 -c \
       | tar -C "$dest" -xf -
   fi
 }
