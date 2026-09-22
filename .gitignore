@@ -1,0 +1,10 @@
+# local experiment artifacts
+.ccache/
+out/
+*.zip
+*.zst
+*.part.*
+upload/
+.dl-*/
+.aosp_incoming/
+.ccache_incoming/

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  tests/bin/zstd — CLI shim used ONLY by tests when a real zstd binary is not
+#  installed on the host. Emulates the exact two invocations lib.sh makes:
+#      zstd -T0 -3 -o -        (compress stdin -> stdout)
+#      zstd -d -T0             (decompress stdin -> stdout)
+#  The archive pipeline treats the compressor as a streaming black box, so
+#  substituting xz here still exercises split ordering, the sha256 gate, tar
+#  exclusions and --strip-components handling.
+# ==============================================================================
+for a in "$@"; do
+  case "$a" in
+    -d) exec xz -dc ;;
+  esac
+done
+exec xz -zc -

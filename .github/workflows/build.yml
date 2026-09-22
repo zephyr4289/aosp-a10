@@ -1,0 +1,146 @@
+name: "QASSA 2.4 (Android 10) - Nokia 6.1 (PL2) - chained build"
+
+# =============================================================================
+#  Chained-build state machine for repos with 4 vCPU / 16 GB / ~6 h job wall.
+#
+#  Bootstrap run : sync source -> cache source -> build slice #1 (cold ccache)
+#  Follow-up runs: restore source + ccache -> build slice -> re-cache ccache
+#  Final run     : 'bacon' completes -> ROM published to release 'rom'
+#
+#  The schedule (every 6 h) keeps the chain converging hands-free; each run
+#  exits in ~30 s once the 'rom' release exists. A CHAIN_PAT secret (optional)
+#  re-dispatches instantly instead of waiting for the next cron tick.
+# =============================================================================
+on:
+  workflow_dispatch:
+    inputs:
+      build_target:
+        description: "Build target (bacon = full flashable ROM zip)"
+        type: choice
+        required: true
+        default: "bacon"
+        options: ["bacon", "bootimage", "systemimage", "nothing"]
+      force_sync:
+        description: "Re-sync source from manifests and refresh the source cache"
+        type: boolean
+        required: false
+        default: false
+      fresh_ccache:
+        description: "Ignore restored ccache and rebuild it from scratch"
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    - cron: "23 */6 * * *"   # offset from :00 to dodge GitHub's cron congestion
+
+concurrency:
+  group: qassa-pl2-build
+  cancel-in-progress: false   # a queued tick waits for the running slice, never kills it
+
+permissions:
+  contents: write   # release upload/download (source cache, ccache, ROM)
+  actions: write    # auto-disable the workflow after success
+
+jobs:
+  build:
+    name: "Chained AOSP slice"
+    runs-on: ubuntu-22.04          # pinned: jammy has openjdk-8 + python3.10, still
+                                   # compatible with the Android-10 build stack
+    timeout-minutes: 340           # hard wall is 360; keep a 20 min save-buffer
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_SLICE_SECONDS: "9600"  # 160 min build budget per slice
+      FORCE_SYNC: ${{ inputs.force_sync }}
+      FRESH_CCACHE: ${{ inputs.fresh_ccache }}
+    steps:
+      - name: "Checkout build harness"
+        uses: actions/checkout@v4
+
+      - name: "Gate - already built?"
+        id: gate
+        run: |
+          if gh release view rom -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "### ROM already published (release 'rom')" >> "$GITHUB_STEP_SUMMARY"
+            echo "Nothing to do. To force a rebuild: delete the 'rom' release and re-run." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: "00 - Prepare runner (disk, swap, toolchain)"
+        if: steps.gate.outputs.skip != 'true'
+        run: bash scripts/00_prepare_runner.sh
+
+      - name: "05 - Restore caches (source + ccache)"
+        if: steps.gate.outputs.skip != 'true'
+        id: restore
+        run: bash scripts/05_restore_cache.sh
+
+      - name: "01 - Sync source"
+        if: >-
+          steps.gate.outputs.skip != 'true' &&
+          (steps.restore.outputs.source == 'sync' || inputs.force_sync == true)
+        run: bash scripts/01_sync_source.sh
+
+      - name: "02 - Apply device patches + validate lunch"
+        if: steps.gate.outputs.skip != 'true'
+        run: bash scripts/02_apply_patches.sh
+
+      - name: "03 - Build slice"
+        if: steps.gate.outputs.skip != 'true'
+        id: build
+        run: bash scripts/03_build.sh "${{ inputs.build_target || 'bacon' }}"
+
+      - name: "06 - Publish ROM (release)"
+        if: steps.build.outputs.rom_zip != ''
+        run: bash scripts/06_publish_rom.sh "${{ steps.build.outputs.rom_zip }}"
+
+      - name: "ROM artifact backup"
+        if: steps.build.outputs.rom_zip != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ steps.build.outputs.rom_name }}"
+          path: "${{ steps.build.outputs.rom_dir }}*.zip"
+          if-no-files-found: warn
+
+      # Persist progress even when the build failed for real reasons — compiled
+      # objects are still valuable. Skipped on full success (nothing to resume).
+      - name: "04 - Persist ccache"
+        if: >-
+          always() &&
+          steps.gate.outputs.skip != 'true' &&
+          steps.build.outputs.attempted == 'true' &&
+          steps.build.outputs.done != 'true'
+        run: bash scripts/04_upload_cache.sh ccache
+
+      # Bootstrap only: snapshot the synced tree so follow-up slices skip sync.
+      - name: "04 - Persist source cache (bootstrap)"
+        if: >-
+          always() &&
+          steps.gate.outputs.skip != 'true' &&
+          steps.restore.outputs.source == 'sync'
+        run: bash scripts/04_upload_cache.sh src
+
+      - name: "Chain next slice (instant if CHAIN_PAT secret is set)"
+        if: always() && steps.build.outputs.sliced == 'true'
+        env:
+          CHAIN_PAT: ${{ secrets.CHAIN_PAT }}
+        run: |
+          if [ -z "${CHAIN_PAT:-}" ]; then
+            echo "No CHAIN_PAT secret — the every-6h schedule resumes the chain automatically."
+            exit 0
+          fi
+          GH_TOKEN="$CHAIN_PAT" gh workflow run build.yml \
+            -R "$GITHUB_REPOSITORY" \
+            -f build_target=bacon \
+            -f force_sync=false \
+            -f fresh_ccache=false
+          echo "Dispatched the next slice now (back-to-back chaining)."
+
+      - name: "Disable workflow after success"
+        if: steps.build.outputs.done == 'true' && steps.gate.outputs.skip != 'true'
+        run: |
+          gh workflow disable "$GITHUB_WORKFLOW" -R "$GITHUB_REPOSITORY" \
+            || echo "Could not auto-disable (non-fatal) — schedule will just no-op via the gate."
+          echo "### Workflow disabled after successful build" >> "$GITHUB_STEP_SUMMARY"
+          echo "Re-enable it (Actions tab) before forcing a rebuild." >> "$GITHUB_STEP_SUMMARY"
