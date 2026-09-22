@@ -40,6 +40,8 @@ export CCACHE_EXEC="$(command -v ccache)"
 export CCACHE_DIR="${CCACHE_DIR}"
 ccache -M "${CCACHE_SIZE}" >/dev/null
 ccache -o compression=true >/dev/null 2>&1 || _warn "ccache compression unavailable (pre-4.x?) — cache will be larger"
+ccache -z >/dev/null 2>&1 || true   # zero stats so BEFORE/AFTER in this slice is exact
+check_disk "before build slice"
 
 # ---- build env ----------------------------------------------------------------------
 export LC_ALL=C                             # old AOSP perl/python scripts hate UTF-8
@@ -73,10 +75,47 @@ summary "| lunch | \`${LUNCH_COMBO}\` |"
 summary "| slice budget | $((BUILD_SLICE_SECONDS / 60)) min |"
 
 # ---- run the build in its own process group + watchdog -----------------------------
+# Log hygiene: full output goes to $BUILD_LOG (for forensics), console gets a
+# throttled filter (every 5% + errors) so the GitHub live view never truncates.
+# RC is taken from the real soong PID (no pipes), so slice/error classification is unchanged.
 T0=$(date +%s)
+BUILD_LOG="$HOME/build-slice.log"
+rm -f "$BUILD_LOG"
 
-setsid "${SOONG_UI}" --make-mode "${TARGET}" &
+setsid "${SOONG_UI}" --make-mode "${TARGET}" >"$BUILD_LOG" 2>&1 &
 SOONG_PID=$!
+
+# Filtered console tail (background, killed after build; never affects RC).
+# Zero-overhead live %: every 5% jump also emits a ::notice:: annotation
+# (max ~20 notices, under GitHub's 50-annotation cap). monitor.py reads the
+# latest annotation via the Checks API — no artifacts, no extra pushes.
+echo "::group::Build output (throttled, full log in artifact on failure)"
+(
+  tail -F -n +1 "$BUILD_LOG" 2>/dev/null | awk '
+    /FAILED|error:|No space left|ninja: .* stopped/ { print; fflush(); next }
+    /\[[ ]*[0-9]+%[ ]*[0-9]+\/[0-9]+/ {
+      tmp = $0; sub(/.*\[[ ]*/, "", tmp)
+      pct = tmp + 0
+      dt = tmp; sub(/^[^0-9]*[0-9]+%[ ]*/, "", dt); sub(/\].*/, "", dt)
+      n = split(dt, a, "/"); done = (n >= 1 ? a[1] : "?"); total = (n >= 2 ? a[2] : "?")
+      if (NR == 1 || pct - last >= 5) {
+        print; fflush(); last = pct
+        printf "::notice title=Build-Progress::PROGRESS:%d:%s/%s\n", pct, done, total; fflush()
+      }
+      next
+    }
+  ' || true
+) &
+TAIL_PID=$!
+
+# Disk monitor: log df every 5 min so ENOSPC is visible before the link spike.
+(
+  while true; do
+    sleep 300
+    df -h / | tail -1 | sed "s/^/[disk] /" || true
+  done
+) &
+DISKMON=$!
 
 # Watchdog: SIGINT the whole group at budget expiry (graceful ninja stop),
 # then SIGKILL five minutes later as a backstop against a stuck process.
@@ -90,11 +129,33 @@ WATCHDOG=$!
 
 RC=0
 wait "${SOONG_PID}" || RC=$?
-kill "${WATCHDOG}" 2>/dev/null || true
+kill "${WATCHDOG}" "${TAIL_PID}" "${DISKMON}" 2>/dev/null || true
 wait "${WATCHDOG}" 2>/dev/null || true
+wait "${TAIL_PID}" 2>/dev/null || true
+wait "${DISKMON}" 2>/dev/null || true
+# Stop tail following the log file.
+pkill -P $$ tail 2>/dev/null || true
 
 T1=$(date +%s)
 ELAPSED=$(( T1 - T0 ))
+echo "::endgroup::"
+
+# Always show the actionable tail (errors + last progress) even with filtering.
+_hr
+_log "build log tail (last 30 lines):"
+tail -n 30 "$BUILD_LOG" 2>/dev/null | sed "s/^/  /" || true
+if grep -E -m 5 "FAILED|No space left|error:" "$BUILD_LOG" 2>/dev/null | sed "s/^/  >> /"; then
+  summary "| build errors | see log tail |"
+  true
+fi
+# Keep a compressed full log for forensics ONLY on real errors (not slices);
+# success/slice paths delete it to return ~100MB before the ccache-pack step.
+if [ "$RC" -ne 0 ] && [ "$ELAPSED" -lt $((BUILD_SLICE_SECONDS - 5)) ]; then
+  zstd -3 -c "$BUILD_LOG" >"$HOME/build-slice.log.zst" 2>/dev/null || true
+  summary "| full log | \`~/build-slice.log.zst\` (artifact on failure) |"
+fi
+rm -f "$BUILD_LOG"
+check_disk "after build slice"
 
 _hr
 _log "ccache AFTER:"

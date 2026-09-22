@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 #  00_prepare_runner.sh — turn a stock GitHub runner into an AOSP-10 workstation
-#  * reclaims ~25 GB of disk (Android SDK, dotnet, docker images, toolcache)
-#  * adds an 8 GB swap file (soong/kati/lld RAM spikes on a 16 GB box)
+#  * reclaims ~30 GB of disk (Android SDK, dotnet, docker images, toolcache)
+#  * adds a swap file per SWAP_SIZE (soong/kati/lld RAM spikes on a 16 GB box)
 #  * installs Ubuntu 20.04-era toolchain bits on 22.04 (openjdk-8, ncurses5)
 # ==============================================================================
 source "$(dirname "$0")/lib.sh"
@@ -21,6 +21,17 @@ sudo rm -rf /usr/local/lib/android \
             2>/dev/null || true
 sudo docker system prune -af >/dev/null 2>&1 || true
 sudo rm -rf /usr/lib/jvm/temurin-17-jdk-amd64 /usr/lib/jvm/temurin-11-jdk-amd64 2>/dev/null || true
+# Additive safe reclaim (post-ENOSPC at 94% link): large, never used by AOSP-10/gh/agent.
+sudo rm -rf /opt/microsoft \
+             /usr/share/miniconda \
+             /usr/local/lib/node_modules \
+             /usr/share/gradle \
+             /usr/local/share/chromium \
+             /opt/google/chrome \
+             /usr/lib/mono \
+             2>/dev/null || true
+sudo apt-get clean >/dev/null 2>&1 || true
+sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* 2>/dev/null || true
 
 command -v gh >/dev/null || _die "gh CLI vanished after cleanup — this should never happen"
 command -v node >/dev/null 2>&1 || _warn "node missing from PATH (actions runtime uses its own — fine)"

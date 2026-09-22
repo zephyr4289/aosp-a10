@@ -81,6 +81,9 @@ def main():
     current_jobs = []
     campaign_start = None
     api_remaining = "?"
+    build_pct = None
+    build_done = None
+    build_total = None
 
     print("Starting AOSP Build Terminal Monitor... (Press Ctrl+C to exit)")
     time.sleep(1)
@@ -107,9 +110,31 @@ def main():
                             jobs_data, _ = fetch_json(current_run["jobs_url"], token)
                             if jobs_data and "jobs" in jobs_data:
                                 current_jobs = jobs_data["jobs"]
+                                # Zero-overhead exact %: 03_build.sh emits
+                                # ::notice::PROGRESS:pct:done/total (max ~20 per
+                                # run); read the latest annotation in the same
+                                # poll cycle — one tiny API call, no CI cost.
+                                if token and current_jobs:
+                                    job_id = current_jobs[0].get("id")
+                                    if job_id:
+                                        ann, _ = fetch_json(
+                                            f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/check-runs/{job_id}/annotations",
+                                            token)
+                                        if isinstance(ann, list):
+                                            for a in ann:
+                                                msg = (a.get("message") or "").strip()
+                                                if msg.startswith("PROGRESS:"):
+                                                    try:
+                                                        _, pct_s, cnt = msg.split(":", 2)
+                                                        build_pct = float(pct_s)
+                                                        d, t = cnt.split("/", 1)
+                                                        build_done, build_total = d.strip(), t.strip()
+                                                    except Exception:
+                                                        pass
                     else:
                         current_run = None
                         current_jobs = []
+                        build_pct = None
                 last_poll = now
 
             # Calculate live timers
@@ -156,6 +181,11 @@ def main():
             lines.append(f"  {BOLD}Current Slice Elapsed:{RESET}   {BOLD}{CYAN}{format_duration(slice_elapsed)}{RESET} / {format_duration(SLICE_BUDGET_SECONDS)}")
             lines.append(f"  {BOLD}Slice Remaining Budget:{RESET}  {format_duration(slice_remaining)}")
             lines.append(f"  {BOLD}Slice Watchdog:{RESET}          {render_progress_bar(slice_percent, 28)}")
+            if build_pct is not None:
+                cnt = f" ({build_done}/{build_total})" if build_done else ""
+                lines.append(f"  {BOLD}Build Progress:{RESET}          {render_progress_bar(build_pct, 28)}{CYAN}{cnt}{RESET}")
+            else:
+                lines.append(f"  {BOLD}Build Progress:{RESET}          {DIM}warming up (exact % appears at first 5% notice){RESET}")
             lines.append(f"{BOLD}╟──────────────────────────────────────────────────────────────────────────╢{RESET}")
             lines.append(f"  {BOLD}PIPELINE STAGES:{RESET}")
 

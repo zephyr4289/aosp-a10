@@ -91,6 +91,14 @@ jobs:
         id: build
         run: bash scripts/03_build.sh "${{ inputs.build_target || 'qassa' }}"
 
+      - name: "Build log (failure forensics)"
+        if: failure() && steps.build.outputs.attempted == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "build-slice-log"
+          path: "~/build-slice.log.zst"
+          if-no-files-found: ignore
+
       - name: "06 - Publish ROM (release)"
         if: steps.build.outputs.rom_zip != ''
         run: bash scripts/06_publish_rom.sh "${{ steps.build.outputs.rom_zip }}"
