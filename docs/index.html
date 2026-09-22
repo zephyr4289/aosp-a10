@@ -726,7 +726,10 @@
 
         if (!runsResp.ok) throw new Error(`HTTP ${runsResp.status}`);
         const runsData = await runsResp.json();
-        allRuns = runsData.workflow_runs || [];
+        const rawRuns = runsData.workflow_runs || [];
+        
+        // Filter specifically for QASSA build runs (ignoring github pages deployment runs)
+        allRuns = rawRuns.filter(r => r.name.toLowerCase().includes("qassa") || (r.path && r.path.includes("build.yml")));
 
         if (allRuns.length > 0) {
           // Identify first bootstrap run timestamp to compute total campaign elapsed time

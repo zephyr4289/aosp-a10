@@ -95,18 +95,21 @@ def main():
                 if rem:
                     api_remaining = rem
                 if runs_data and "workflow_runs" in runs_data and runs_data["workflow_runs"]:
-                    runs = runs_data["workflow_runs"]
-                    current_run = runs[0]
-                    # Earliest run for campaign total elapsed time
-                    earliest_start = parse_iso(runs[-1].get("created_at"))
-                    if earliest_start:
-                        campaign_start = earliest_start
-                    
-                    # Fetch job steps
-                    if "jobs_url" in current_run:
-                        jobs_data, _ = fetch_json(current_run["jobs_url"], token)
-                        if jobs_data and "jobs" in jobs_data:
-                            current_jobs = jobs_data["jobs"]
+                    raw_runs = runs_data["workflow_runs"]
+                    runs = [r for r in raw_runs if "qassa" in r.get("name", "").lower() or "build.yml" in r.get("path", "")]
+                    if runs:
+                        current_run = runs[0]
+                        earliest_start = parse_iso(runs[-1].get("created_at"))
+                        if earliest_start:
+                            campaign_start = earliest_start
+                        
+                        if "jobs_url" in current_run:
+                            jobs_data, _ = fetch_json(current_run["jobs_url"], token)
+                            if jobs_data and "jobs" in jobs_data:
+                                current_jobs = jobs_data["jobs"]
+                    else:
+                        current_run = None
+                        current_jobs = []
                 last_poll = now
 
             # Calculate live timers
