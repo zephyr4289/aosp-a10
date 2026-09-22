@@ -24,7 +24,11 @@
 # ==============================================================================
 source "$(dirname "$0")/lib.sh"
 
-TARGET="${1:-bacon}"
+TARGET="${1:-qassa}"
+# QASSA ROM zip target is 'qassa' (or otapackage); map 'bacon' to 'qassa'
+if [ "$TARGET" = "bacon" ]; then
+  TARGET="qassa"
+fi
 out attempted true
 
 [ -f "${AOSP_ROOT}/.source_ready" ] || _die "source tree not ready — run 01/02 first"
@@ -108,7 +112,7 @@ if [ "$RC" -eq 0 ]; then
   out done true
   out sliced false
 
-  if [ "$TARGET" = "bacon" ]; then
+  if [ "$TARGET" = "qassa" ] || [ "$TARGET" = "bacon" ] || [ "$TARGET" = "otapackage" ]; then
     ROM_DIR="${AOSP_ROOT}/out/target/product/${DEVICE}"
     ROM_ZIP=""
     # largest zip that is not a fastboot image package = the OTA/ROM zip
@@ -121,7 +125,7 @@ if [ "$RC" -eq 0 ]; then
         ROM_ZIP="$z"
       fi
     done
-    [ -n "$ROM_ZIP" ] || _die "bacon succeeded but no ROM zip found in ${ROM_DIR}"
+    [ -n "$ROM_ZIP" ] || _die "${TARGET} succeeded but no ROM zip found in ${ROM_DIR}"
     out rom_zip "$ROM_ZIP"
     out rom_name "$(basename "$ROM_ZIP")"
     out rom_dir "${ROM_DIR}/"

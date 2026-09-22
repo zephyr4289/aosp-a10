@@ -15,11 +15,11 @@ on:
   workflow_dispatch:
     inputs:
       build_target:
-        description: "Build target (bacon = full flashable ROM zip)"
+        description: "Build target (qassa = full flashable ROM zip)"
         type: choice
         required: true
-        default: "bacon"
-        options: ["bacon", "bootimage", "systemimage", "nothing"]
+        default: "qassa"
+        options: ["qassa", "bacon", "bootimage", "systemimage", "otapackage", "nothing"]
       force_sync:
         description: "Re-sync source from manifests and refresh the source cache"
         type: boolean
@@ -89,7 +89,7 @@ jobs:
       - name: "03 - Build slice"
         if: steps.gate.outputs.skip != 'true'
         id: build
-        run: bash scripts/03_build.sh "${{ inputs.build_target || 'bacon' }}"
+        run: bash scripts/03_build.sh "${{ inputs.build_target || 'qassa' }}"
 
       - name: "06 - Publish ROM (release)"
         if: steps.build.outputs.rom_zip != ''
@@ -132,7 +132,7 @@ jobs:
           fi
           GH_TOKEN="$CHAIN_PAT" gh workflow run build.yml \
             -R "$GITHUB_REPOSITORY" \
-            -f build_target=bacon \
+            -f build_target=qassa \
             -f force_sync=false \
             -f fresh_ccache=false
           echo "Dispatched the next slice now (back-to-back chaining)."
