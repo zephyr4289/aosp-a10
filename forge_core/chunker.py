@@ -219,7 +219,16 @@ def unpack(parts_dir: Path, prefix: str, dest: Path, strip: bool = False) -> Non
         raise ChunkerError(
             f"sha256 mismatch for {prefix} — state corrupted in transfer; "
             f"delete the offending release tag and rerun the job")
-    parts = sorted(parts_dir.glob(f"{prefix}.part.*"))
+    sums = parts_dir / "SHA256SUMS"
+    if sums.exists():
+        parts = []
+        for line in sums.read_text().splitlines():
+            if line.strip():
+                p = parts_dir / line.split()[1]
+                if p.exists():
+                    parts.append(p)
+    else:
+        parts = sorted(parts_dir.glob(f"{prefix}.part.*"))
     if not parts:
         raise ChunkerError(f"no {prefix} parts found in {parts_dir}")
     dest.mkdir(parents=True, exist_ok=True)

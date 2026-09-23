@@ -45,7 +45,13 @@ def bank(build_root: Path, store, tag: str, key: str, slice_no: int,
     if not (build_root / "out").exists():
         log.warn("no out/ to bank — skipping relay push")
         return 0
-    if not store.exists(tag):
+    if store.exists(tag):
+        try:
+            store.reset(tag, f"out-state {key} slice {slice_no}",
+                        notes or "Exact-resume ninja state. GC'd automatically.")
+        except Exception:
+            pass
+    else:
         store.create(tag, f"out-state {key} slice {slice_no}",
                      notes or "Exact-resume ninja state. GC'd automatically.")
     try:
