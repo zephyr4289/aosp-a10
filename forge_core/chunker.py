@@ -142,7 +142,7 @@ def stream_pack(root: Path, member: str, prefix: str,
         'set -e; '
         'cat > "$FILE"; '
         'printf \'%s  %s\\n\' "$(sha256sum "$FILE" | cut -d\' \' -f1)" '
-        '"$FILE" >> "$FORGE_SUMS"; '
+        '"$(basename "$FILE")" >> "$FORGE_SUMS"; '
         'n=0; until sh -c "$FORGE_SINK"; do '
         'n=$((n+1)); [ "$n" -ge 3 ] && exit 1; sleep 20; done; '
         'rm -f "$FILE"'
@@ -150,34 +150,46 @@ def stream_pack(root: Path, member: str, prefix: str,
 
     log.log(f"stream-packing {member} -> sink (zero staging) ...")
     env = dict(os.environ, FORGE_SUMS=str(sums_out), FORGE_SINK=sink_sh)
+    work_dir = root.parent
+    work_dir.mkdir(parents=True, exist_ok=True)
     _run_pack_pipeline_env(
         root, member, excludes,
         ["split", "-b", str(PART_BYTES), "--filter", inner, "-",
-         str(prefix) + ".part."], env)
+         str(prefix) + ".part."], env, cwd=work_dir)
     n = sum(1 for line in sums_out.read_text().splitlines() if line.strip())
     log.ok(f"stream-packed {member}: {n} parts shipped through sink")
     return n
 
 
 def _run_pack_pipeline_env(root: Path, member: str, excludes: List[str],
-                           split_args: List[str], env: Dict[str, str]) -> None:
+                           split_args: List[str], env: Dict[str, str],
+                           cwd: Optional[Path] = None) -> None:
+    work_dir = cwd or root.parent
+    work_dir.mkdir(parents=True, exist_ok=True)
     cmd = ["tar", "-C", str(root), "-cf", "-", *_exclude_args(excludes), member]
     comp = _compress_cmd()
-    tar_p = subprocess.Popen(cmd, stdout=subprocess.PIPE, env=env)
-    zst_p = subprocess.Popen(comp, stdin=tar_p.stdout, stdout=subprocess.PIPE,
+    tar_p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    zst_p = subprocess.Popen(comp, stdin=tar_p.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              env=env)
     assert tar_p.stdout is not None
     tar_p.stdout.close()
     split_p = subprocess.Popen(split_args, stdin=zst_p.stdout,
-                               stdout=subprocess.DEVNULL, env=env)
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                               cwd=str(work_dir), env=env)
     assert zst_p.stdout is not None
     zst_p.stdout.close()
-    rc_zst = zst_p.wait()
-    rc_tar = tar_p.wait()
-    rc_split = split_p.wait()
-    if rc_tar != 0 or rc_zst != 0 or rc_split != 0:
-        raise ChunkerError(f"pack pipeline failed tar={rc_tar} comp={rc_zst} "
-                           f"split={rc_split}")
+    _, split_err = split_p.communicate()
+    _, zst_err = zst_p.communicate()
+    _, tar_err = tar_p.communicate()
+    rc_zst = zst_p.returncode
+    rc_tar = tar_p.returncode
+    rc_split = split_p.returncode
+    if (rc_tar not in (0, 1)) or rc_zst != 0 or rc_split != 0:
+        err_msg = (f"pack pipeline failed tar={rc_tar} "
+                   f"({tar_err.decode(errors='ignore').strip()[:200]}) "
+                   f"comp={rc_zst} ({zst_err.decode(errors='ignore').strip()[:200]}) "
+                   f"split={rc_split} ({split_err.decode(errors='ignore').strip()[:200]})")
+        raise ChunkerError(err_msg)
 
 
 def verify(parts_dir: Path, prefix: str) -> bool:

@@ -95,6 +95,7 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                                 start_new_session=True)   # <- own pgid
 
     stop = threading.Event()
+    stopped_by_watchdog = threading.Event()
 
     def _pg(sig: int) -> None:
         try:
@@ -108,6 +109,7 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
             return
         log.warn(f"slice budget spent ({budget_s // 60} min) — SIGINT to pgid "
                  f"{proc.pid} for a consistent out/ bank")
+        stopped_by_watchdog.set()
         _pg(signal.SIGINT)
         if stop.wait(300):
             return
@@ -127,6 +129,7 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                          f"{freed / 2**30:.1f} GB")
             if free < 2.0:
                 log.warn("disk critical — early graceful slice stop")
+                stopped_by_watchdog.set()
                 _pg(signal.SIGINT)
 
     # ---- progress thread ------------------------------------------------------
@@ -162,7 +165,7 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                                  "classification": "error", "rom_zip": ""}
     if rc == 0:
         result["classification"] = "done"
-    elif elapsed >= budget_s - 5:
+    elif stopped_by_watchdog.is_set() or elapsed >= budget_s - 5:
         result["classification"] = "sliced"
     else:
         # real failure — but still bankable state; the workflow decides
