@@ -15,6 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd rsync
+      - run: python3 -m pip install --quiet pyyaml
       - name: Config schema validation
         run: python3 -m forge_core.cli --root . validate
       - name: Doctor (env self-report)

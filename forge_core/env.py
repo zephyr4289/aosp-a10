@@ -154,8 +154,8 @@ def reclaim_disk() -> List[str]:
         subprocess.run(["sudo", "rm", "-rf", tmp], check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if removed:
-        log(f"reclaimed {len(removed)} runner blobs "
-            f"(~25-30 GB): {', '.join(p.split('/')[-1] for p in removed)}")
+        log.log(f"reclaimed {len(removed)} runner blobs "
+                f"(~25-30 GB): {', '.join(p.split('/')[-1] for p in removed)}")
     return removed
 
 
@@ -165,8 +165,8 @@ def ensure_swap(swap_path: str, size_gb: int = 4) -> bool:
         return True
     free = _df_free_gb(os.path.dirname(swap_path))
     if free < size_gb + 20:
-        log(f"only {free:.0f} GB free on {os.path.dirname(swap_path)} — "
-            f"skipping {size_gb}G swap to protect the disk budget")
+        log.log(f"only {free:.0f} GB free on {os.path.dirname(swap_path)} — "
+                f"skipping {size_gb}G swap to protect the disk budget")
         return False
     for cmd in (["sudo", "fallocate", "-l", f"{size_gb}G", swap_path],
                 ["sudo", "chmod", "600", swap_path],
@@ -174,9 +174,9 @@ def ensure_swap(swap_path: str, size_gb: int = 4) -> bool:
                 ["sudo", "swapon", swap_path]):
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
-            log(f"swap setup failed at {' '.join(cmd[:2])}: {r.stderr.strip()[:120]}")
+            log.log(f"swap setup failed at {' '.join(cmd[:2])}: {r.stderr.strip()[:120]}")
             return False
-    log(f"swap on: {size_gb} GB at {swap_path}")
+    log.log(f"swap on: {size_gb} GB at {swap_path}")
     return True
 
 
@@ -189,7 +189,7 @@ def install_pkgs(pkgs: List[str]) -> None:
     r = subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", *pkgs],
                        capture_output=True, text=True)
     if r.returncode != 0:
-        log(f"apt install had issues (continuing): {r.stderr.strip()[:200]}")
+        log.warn(f"apt install had issues (continuing): {r.stderr.strip()[:200]}")
 
 
 def ncurses5_compat() -> None:
@@ -244,7 +244,7 @@ def reclaim_ladder(root: Path, want_gb: float = 8.0) -> float:
                 size = _dir_size(p)
                 shutil.rmtree(p, ignore_errors=True)
                 freed += size
-                log(f"ladder: reclaimed {size / 2**30:.1f} GB at {p}")
+                log.log(f"ladder: reclaimed {size / 2**30:.1f} GB at {p}")
     return freed
 
 
@@ -267,7 +267,7 @@ def assert_disk(path: str, min_gb: float, context: str) -> None:
             f"need {min_gb:.0f} GB. Reclaim ladder exhausted — aborting before "
             f"corrupting the build state.")
     if free < min_gb + 6:
-        log(f"disk low: {free:.1f} GB free ({context}) — ladder armed")
+        log.warn(f"disk low: {free:.1f} GB free ({context}) — ladder armed")
 
 
 def disk_table(root: str = "/") -> Dict[str, float]:
