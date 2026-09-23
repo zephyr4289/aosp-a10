@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# ROMForge — universal free-CI ROM compiler entrypoint.
+# Usage: ./forge <command> [args...]
+# All commands are implemented in forge_core/ (python3 >= 3.8, stdlib + PyYAML).
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 -m forge_core.cli --root "${HERE}" "$@"

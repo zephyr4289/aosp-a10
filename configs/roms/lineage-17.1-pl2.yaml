@@ -1,0 +1,41 @@
+# =============================================================================
+#  LineageOS 17.1 (Android 10) for Nokia 6.1 (PL2) — second ROM, same device.
+#  Demonstrates the device-profile REUSE: identical safety budgets, different
+#  ROM sources. Only the manifest/lunch/product patches differ.
+# =============================================================================
+name: LineageOS
+android_version: 10
+device: PL2
+
+manifest_url: https://github.com/LineageOS/android
+manifest_branch: lineage-17.1
+
+lunch: lineage_PL2-userdebug
+build_target: bacon
+rom_zip_glob: "lineage-*.zip"
+
+device_clone_mode: direct
+device_repos:
+  - path: device/nokia/PL2
+    url: https://github.com/Zoro-15/android_device_nokia_PL2
+    branch: lineage-17.1
+  - path: device/nokia/sdm660-common
+    url: https://github.com/Zoro-15/android_device_nokia_sdm660-common
+    branch: lineage-17.1
+  - path: kernel/nokia/sdm660
+    url: https://github.com/Zoro-15/android_kernel_nokia_sdm660
+    branch: lineage-17.1
+  - path: vendor/nokia
+    url: https://github.com/Zoro-15/proprietary_vendor_nokia
+    branch: lineage-17.1
+
+env:
+  WITH_DEXPREOPT: "false"
+
+slices: 4
+slice_build_seconds: 16500
+
+turbo:
+  enabled: true
+  targets: [bootimage, vendorimage, productimage]
+  budget_s: 16500

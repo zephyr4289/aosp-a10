@@ -1,0 +1,48 @@
+# =============================================================================
+#  QASSA 2.4 (Android 10) for Nokia 6.1 (PL2) — the ported, proven target.
+#  Values carried over from the working aosp-a10 Colab/CI flow and re-homed
+#  into the ROMForge profile schema.
+# =============================================================================
+name: QASSA
+android_version: 10
+device: PL2                       # -> configs/devices/ lookup key
+
+manifest_url: https://github.com/keepQASSA/manifest
+manifest_branch: Q
+
+lunch: qassa_PL2-userdebug
+build_target: qassa               # 'qassa' = full flashable zip (aosp-a10 term)
+rom_zip_glob: "*.zip"
+
+device_clone_mode: direct         # proven flow: post-sync shallow clones
+device_repos:
+  - path: device/nokia/PL2
+    url: https://github.com/Zoro-15/android_device_nokia_PL2
+    branch: lineage-17.1
+  - path: device/nokia/sdm660-common
+    url: https://github.com/Zoro-15/android_device_nokia_sdm660-common
+    branch: lineage-17.1
+  - path: kernel/nokia/sdm660
+    url: https://github.com/Zoro-15/android_kernel_nokia_sdm660
+    branch: lineage-17.1
+  - path: vendor/nokia
+    url: https://github.com/Zoro-15/proprietary_vendor_nokia
+    branch: lineage-17.1
+
+# product makefiles injected into the tree before the first slice
+patches:
+  - src: patches/device/qassa_PL2.mk
+    dst: device/nokia/PL2/qassa_PL2.mk
+  - src: patches/device/AndroidProducts.mk
+    dst: device/nokia/PL2/AndroidProducts.mk
+
+env:
+  WITH_DEXPREOPT: "false"         # massive time + disk saver; boot a bit slower
+
+slices: 4                         # A10 on 4 vCPU: ~12 cold-hours -> 3-4 slices
+slice_build_seconds: 16500        # 275 min build inside a 350 min job wall
+
+turbo:
+  enabled: true
+  targets: [bootimage, vendorimage, productimage]
+  budget_s: 16500

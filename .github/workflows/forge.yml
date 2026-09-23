@@ -1,0 +1,326 @@
+name: "ROMForge — universal build"
+
+# =============================================================================
+#  The orchestrator. One workflow run carries the WHOLE campaign:
+#
+#    plan ──► sync (only if src-<mhash> missing)
+#              ├─► turbo:bootimage ──┐   (partition prewarm, parallel)
+#              ├─► turbo:vendorimage ├──► ... running while slot-1 builds ...
+#              └─► turbo:productimage ┘            │
+#                       slot-1 ──► slot-2 ──► … ──► verify ──► publish
+#
+#  Why in-run slot chaining (replaces upstream's 6-hourly cron chain):
+#    * jobs within ONE run follow `needs:` — back-to-back, no cron gaps,
+#      no CHAIN_PAT secret, no 18-36 h wall-clock tax.
+#    * GitHub caps each JOB at 6 h but a RUN at 35 days — a fixed chain of
+#      idempotent slots (early-exit once INDEX says done) exploits exactly
+#      that ceiling.
+#  Why turbo: 20 free concurrency slots on public repos; the 4-vCPU physics
+#  that makes cold builds long is amortized by spending CONCURRENCY instead
+#  of wall-clock (TECHNICAL.md §6).
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      rom:
+        description: "ROM profile (configs/roms/<name>.yaml)"
+        required: true
+        default: "qassa-a10"
+      target:
+        description: "build target override (bacon/qassa/bootimage/...)"
+        required: false
+        default: ""
+      force_sync:
+        description: "Re-resolve + re-snapshot source (new mhash)"
+        type: boolean
+        required: false
+        default: false
+      skip_turbo:
+        description: "Disable partition fan-out for this run"
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    - cron: "17 3 * * 1"   # weekly catch-up (resume if a run was cut short)
+
+concurrency:
+  group: forge-${{ github.event.inputs.rom || 'qassa-a10' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  # --------------------------------------------------------------------------
+  plan:
+    name: "Plan + validate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      runner: ${{ steps.contract.outputs.runner }}
+      key: ${{ steps.contract.outputs.target_key }}
+      turbo: ${{ steps.contract.outputs.turbo }}
+      src_needed: ${{ steps.probe.outputs.src_needed }}
+      target: ${{ steps.contract.outputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+      - name: "Validate profiles + compute execution contract"
+        id: contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TARGET: ${{ github.event.inputs.target }}
+          SKIP_TURBO: ${{ github.event.inputs.skip_turbo }}
+          ROM: ${{ github.event.inputs.rom || 'qassa-a10' }}
+        run: |
+          set -euo pipefail
+          python3 -m forge_core.cli --root . validate
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          import forge_core.config as C
+          import forge_core.turbo as T
+          root = Path(".").resolve()
+          rom_name = os.environ["ROM"]
+          cand = [p for p in sorted((root / "configs" / "roms").glob("*.yaml"))
+                  if rom_name in (p.stem, p.name)]
+          assert cand, f"no rom profile for {rom_name}"
+          plan = C.build_plan(root, cand[0])
+          rows = [] if os.environ.get("SKIP_TURBO") == "true" \
+              else T.partition_plan(plan)
+          def out(k, v):
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write(f"{k}={v}\n")
+          out("runner", plan.runner_image)
+          out("target_key", plan.rom.key)
+          out("turbo", json.dumps([r["partition"] for r in rows]))
+          out("target", os.environ.get("INPUT_TARGET", ""))
+          print(json.dumps(plan.to_dict(), indent=2))
+          print("turbo rows:", [r["partition"] for r in rows])
+          PY
+      - name: "Probe state store (INDEX)"
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_SYNC: ${{ github.event.inputs.force_sync }}
+          ROM: ${{ github.event.inputs.rom || 'qassa-a10' }}
+        run: |
+          set -euo pipefail
+          if [ "$FORCE_SYNC" = "true" ]; then
+            echo "src_needed=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          python3 -m forge_core.cli --root . probe --rom "$ROM" | \
+            grep '^OUT:' | sed 's/^OUT: //' | tee probe.txt || true
+          if grep -q 'src_needed=false' probe.txt 2>/dev/null; then
+            echo "src_needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "src_needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # --------------------------------------------------------------------------
+  sync:
+    name: "Source sync + snapshot"
+    needs: plan
+    if: needs.plan.outputs.src_needed == 'true'
+    runs-on: ${{ needs.plan.outputs.runner }}
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+      - name: "Prepare runner"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
+      - name: "Shallow sync + bank content-addressed snapshot"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . sync --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
+
+  # --------------------------------------------------------------------------
+  turbo:
+    name: "Turbo: ${{ matrix.partition }}"
+    needs: [plan, sync]
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      needs.plan.outputs.turbo != '[]' &&
+      (needs.sync.result == 'success' || needs.sync.result == 'skipped')
+    runs-on: ${{ needs.plan.outputs.runner }}
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        partition: ${{ fromJSON(needs.plan.outputs.turbo) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+      - name: "Prepare runner"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
+      - name: "Partition prewarm (ALLOW_MISSING_DEPENDENCIES)"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . slice --rom "${{ github.event.inputs.rom || 'qassa-a10' }}" --turbo-part "${{ matrix.partition }}"
+
+  # --------------------------------------------------------------------------
+  #  The in-run slot chain. slot-1 runs WHILE turbo prewarms (the system
+  #  closure is the critical path; turbo only accelerates the cold start).
+  #  Slots 2+ wait for their predecessor's banked state (exact resume).
+  # --------------------------------------------------------------------------
+  slot-1:
+    name: "Slot 1 (critical path: system)"
+    needs: [plan, sync]
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      (needs.sync.result == 'success' || needs.sync.result == 'skipped')
+    uses: ./.github/workflows/slot.yml
+    secrets: inherit
+    with:
+      rom: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      runner: ${{ needs.plan.outputs.runner }}
+      target: ${{ needs.plan.outputs.target }}
+      slot: "1"
+
+  slot-2:
+    name: "Slot 2"
+    needs: [plan, slot-1]
+    if: always() && needs.plan.result == 'success' && needs.slot-1.result == 'success'
+    uses: ./.github/workflows/slot.yml
+    secrets: inherit
+    with:
+      rom: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      runner: ${{ needs.plan.outputs.runner }}
+      target: ${{ needs.plan.outputs.target }}
+      slot: "2"
+
+  slot-3:
+    name: "Slot 3"
+    needs: [plan, slot-2]
+    if: always() && needs.plan.result == 'success' && needs.slot-2.result == 'success'
+    uses: ./.github/workflows/slot.yml
+    secrets: inherit
+    with:
+      rom: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      runner: ${{ needs.plan.outputs.runner }}
+      target: ${{ needs.plan.outputs.target }}
+      slot: "3"
+
+  slot-4:
+    name: "Slot 4"
+    needs: [plan, slot-3]
+    if: always() && needs.plan.result == 'success' && needs.slot-3.result == 'success'
+    uses: ./.github/workflows/slot.yml
+    secrets: inherit
+    with:
+      rom: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      runner: ${{ needs.plan.outputs.runner }}
+      target: ${{ needs.plan.outputs.target }}
+      slot: "4"
+
+  slot-5:
+    name: "Slot 5 (A13+ campaigns)"
+    needs: [plan, slot-4]
+    if: always() && needs.plan.result == 'success' && needs.slot-4.result == 'success'
+    uses: ./.github/workflows/slot.yml
+    secrets: inherit
+    with:
+      rom: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      runner: ${{ needs.plan.outputs.runner }}
+      target: ${{ needs.plan.outputs.target }}
+      slot: "5"
+
+  slot-6:
+    name: "Slot 6 (A15+ campaigns)"
+    needs: [plan, slot-5]
+    if: always() && needs.plan.result == 'success' && needs.slot-5.result == 'success'
+    uses: ./.github/workflows/slot.yml
+    secrets: inherit
+    with:
+      rom: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      runner: ${{ needs.plan.outputs.runner }}
+      target: ${{ needs.plan.outputs.target }}
+      slot: "6"
+
+  slot-7:
+    name: "Slot 7 (A16 campaigns)"
+    needs: [plan, slot-6]
+    if: always() && needs.plan.result == 'success' && needs.slot-6.result == 'success'
+    uses: ./.github/workflows/slot.yml
+    secrets: inherit
+    with:
+      rom: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      runner: ${{ needs.plan.outputs.runner }}
+      target: ${{ needs.plan.outputs.target }}
+      slot: "7"
+
+  slot-8:
+    name: "Slot 8 (A16 campaigns)"
+    needs: [plan, slot-7]
+    if: always() && needs.plan.result == 'success' && needs.slot-7.result == 'success'
+    uses: ./.github/workflows/slot.yml
+    secrets: inherit
+    with:
+      rom: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      runner: ${{ needs.plan.outputs.runner }}
+      target: ${{ needs.plan.outputs.target }}
+      slot: "8"
+
+  # --------------------------------------------------------------------------
+  verify:
+    name: "14-point hard gate"
+    needs: [plan, slot-8]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ${{ needs.plan.outputs.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+      - name: "Prepare runner"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
+      - name: "Verify (gate)"
+        id: gate
+        continue-on-error: true
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          python3 -m forge_core.cli --root . verify \
+            --rom "${{ github.event.inputs.rom || 'qassa-a10' }}" \
+            --out SAFETY_REPORT.json
+      - name: "Upload SAFETY_REPORT (even on FAIL)"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: safety-report
+          path: SAFETY_REPORT.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish:
+    name: "Publish (gate-gated)"
+    needs: verify
+    if: always() && needs.verify.result == 'success'
+    runs-on: ${{ needs.plan.outputs.runner || 'ubuntu-22.04' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+      - name: "Prepare runner"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
+      - name: "Download gate report"
+        uses: actions/download-artifact@v4
+        with: { name: safety-report, path: . }
+      - name: "Publish ROM + guarded flash script"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          python3 -m forge_core.cli --root . publish \
+            --rom "${{ github.event.inputs.rom || 'qassa-a10' }}" \
+            --report SAFETY_REPORT.json

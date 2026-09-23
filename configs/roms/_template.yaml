@@ -1,0 +1,44 @@
+# =============================================================================
+#  _template.yaml — ANY-ROM profile template (docs/ADD_ROM.md has the guide).
+#
+#  Copy to configs/roms/<your-rom>-<device>.yaml, fill the REQUIRED fields,
+#  then:  ./forge validate   and   ./forge plan --rom <name>
+#
+#  "Any ROM" means: if it builds with `repo sync` + `lunch` + `m <target>`,
+#  it builds here. You never touch the workflows.
+# =============================================================================
+name: ""                          # REQUIRED: human name ("PixelOS")
+android_version: 13               # REQUIRED: 10..16 (drives versions.yaml)
+
+device: ""                        # REQUIRED: key of configs/devices/<key>.yaml
+
+manifest_url: ""                  # REQUIRED: ROM manifest repo
+manifest_branch: ""               # REQUIRED: branch/tag ("lineage-20.0")
+
+lunch: ""                         # REQUIRED: "<product>_<device>-<variant>"
+build_target: bacon               # bacon | otapackage | <rom-specific>
+rom_zip_glob: "*.zip"             # how to find the flashable zip
+
+device_clone_mode: direct         # direct = post-sync shallow clones (proven);
+                                  # manifest = local_manifests merge
+device_repos: []                  # direct mode:
+                                  # - path: device/oem/codename
+                                  #   url: https://github.com/...
+                                  #   branch: lineage-20.0
+local_manifests: []               # manifest mode: repo-relative file paths
+                                  # (see configs/roms/qassa_pl2.xml example)
+
+patches: []                       # product makefiles to inject:
+                                  # - src: patches/device/x.mk
+                                  #   dst: device/oem/codename/x.mk
+
+env:
+  WITH_DEXPREOPT: "false"
+
+slices: 6                         # see versions.yaml cold_hours_4vcpu
+slice_build_seconds: 16500
+
+turbo:
+  enabled: true                   # parallel partition prewarm (A12+ adds
+  targets: []                     # system_extimage automatically if omitted)
+  budget_s: 16500

@@ -1,5 +1,22 @@
 # local experiment artifacts
-.ccache/
+.forge-store/
+.forge-artifacts/
+.forge-tmp-index/
+.forge-dl-src/
+.forge-dl-state/
+.forge-turbo*/
+.forge-src-incoming/
+.forge-publish/
+.forge-parts-*/
+.forge-swap
+.forge_sums.tmp
+.forge-manifest.xml
+__pycache__/
+*.pyc
+plan.txt
+probe.txt
+SAFETY_REPORT.json
+aosp/
 out/
 *.zip
 *.zst
@@ -8,5 +25,3 @@ upload/
 .dl-*/
 .aosp_incoming/
 .ccache_incoming/
-__pycache__/
-*.pyc

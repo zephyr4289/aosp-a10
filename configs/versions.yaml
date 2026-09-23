@@ -1,0 +1,164 @@
+# =============================================================================
+#  versions.yaml — the A10..A16 hosting capability matrix.
+#  One entry per Android version: which runner image can host its build stack,
+#  which host packages it needs, and the planning budgets ROMForge assumes.
+#  Extend ONLY here when adding a new Android version (see docs/ADD_ROM.md).
+# =============================================================================
+
+"10":
+  runner: ubuntu-22.04          # jammy still ships openjdk-8 + py3.10 (A10 stack)
+  apt_packages:
+    - git
+    - git-lfs
+    - ccache
+    - zstd
+    - curl
+    - rsync
+    - zip
+    - unzip
+    - build-essential
+    - openjdk-8-jdk
+    - python-is-python3
+    - python3-distutils
+    - zlib1g-dev
+    - libncurses5-dev
+    - libncursesw5-dev
+  env: { LC_ALL: "C" }
+  swap_gb: 4
+  sync_jobs: 8
+  expected_source_gb: 35
+  cold_hours_4vcpu: 12          # planning number for the slice estimator
+  slices_default: 4
+
+"11":
+  runner: ubuntu-22.04
+  apt_packages:
+    - git
+    - git-lfs
+    - ccache
+    - zstd
+    - curl
+    - rsync
+    - zip
+    - unzip
+    - build-essential
+    - openjdk-8-jdk
+    - python-is-python3
+    - zlib1g-dev
+    - libncurses5-dev
+    - libncursesw5-dev
+  env: { LC_ALL: "C" }
+  swap_gb: 4
+  sync_jobs: 8
+  expected_source_gb: 40
+  cold_hours_4vcpu: 14
+  slices_default: 4
+
+"12":
+  runner: ubuntu-22.04
+  apt_packages:
+    - git
+    - git-lfs
+    - ccache
+    - zstd
+    - curl
+    - rsync
+    - zip
+    - unzip
+    - build-essential
+    - python-is-python3
+    - zlib1g-dev
+    - libncurses5-dev
+    - libncursesw5-dev
+  env: { LC_ALL: "C" }
+  swap_gb: 4
+  sync_jobs: 8
+  expected_source_gb: 45
+  cold_hours_4vcpu: 16
+  slices_default: 5
+
+"13":
+  runner: ubuntu-22.04          # in-tree JDK17 prebuilts; jammy python is fine
+  apt_packages:
+    - git
+    - git-lfs
+    - ccache
+    - zstd
+    - curl
+    - rsync
+    - zip
+    - unzip
+    - build-essential
+    - python-is-python3
+    - zlib1g-dev
+    - libncursesw5-dev
+  env: { LC_ALL: "C" }
+  swap_gb: 4
+  sync_jobs: 8
+  expected_source_gb: 55
+  cold_hours_4vcpu: 20
+  slices_default: 6
+
+"14":
+  runner: ubuntu-24.04
+  apt_packages:
+    - git
+    - git-lfs
+    - ccache
+    - zstd
+    - curl
+    - rsync
+    - zip
+    - unzip
+    - build-essential
+    - python-is-python3
+  env: { LC_ALL: "C" }
+  swap_gb: 4
+  sync_jobs: 8
+  expected_source_gb: 60
+  cold_hours_4vcpu: 24
+  slices_default: 7
+
+"15":
+  runner: ubuntu-24.04
+  apt_packages:
+    - git
+    - git-lfs
+    - ccache
+    - zstd
+    - curl
+    - rsync
+    - zip
+    - unzip
+    - build-essential
+    - python-is-python3
+  env: { LC_ALL: "C" }
+  swap_gb: 4
+  sync_jobs: 8
+  expected_source_gb: 65
+  cold_hours_4vcpu: 28
+  slices_default: 8
+
+"16":
+  runner: ubuntu-24.04
+  apt_packages:
+    - git
+    - git-lfs
+    - ccache
+    - zstd
+    - curl
+    - rsync
+    - zip
+    - unzip
+    - build-essential
+    - python-is-python3
+  env: { LC_ALL: "C" }
+  swap_gb: 6
+  sync_jobs: 8
+  expected_source_gb: 70
+  cold_hours_4vcpu: 32
+  slices_default: 9
+  note: >-
+    android-16 trees are the largest; the turbo fan-out + slice chain still
+    converge, but plan for an overnight campaign and read TECHNICAL.md §6
+    before promising wall-clock numbers to users.

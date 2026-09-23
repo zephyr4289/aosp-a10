@@ -1,6 +1,0 @@
-# path-in-tree|clone-url|branch
-# The four verified Nokia 6.1 (PL2) repos. Shallow-cloned, branch-pinned.
-device/nokia/PL2|https://github.com/Zoro-15/android_device_nokia_PL2|lineage-17.1
-device/nokia/sdm660-common|https://github.com/Zoro-15/android_device_nokia_sdm660-common|lineage-17.1
-kernel/nokia/sdm660|https://github.com/Zoro-15/android_kernel_nokia_sdm660|lineage-17.1
-vendor/nokia|https://github.com/Zoro-15/proprietary_vendor_nokia|lineage-17.1

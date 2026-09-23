@@ -1,0 +1,49 @@
+name: "slice-slot"
+# =============================================================================
+#  Reusable slice slot — ONE idempotent campaign step.
+#  Early-exits (~2 min) when the pipeline INDEX says the target is done.
+#  On cold starts: restores src-<mhash>, merges turbo prewarm states.
+#  On continuation: restores state-<key>-s<N> (exact ninja resume).
+#  Always banks its out/ back before finishing (zero redo by construction).
+# =============================================================================
+on:
+  workflow_call:
+    inputs:
+      rom:        { required: true, type: string }
+      runner:     { required: true, type: string }
+      target:     { required: false, type: string, default: "" }
+      slot:       { required: true, type: string }
+
+jobs:
+  slot:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+      - name: "Prepare runner (reclaim ~25-30 GB, swap, toolchain)"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "${{ inputs.rom }}"
+
+      - name: "Build slot ${{ inputs.slot }}"
+        id: slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORGE_SLOT: ${{ inputs.slot }}
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.target }}" ]; then
+            export FORGE_TARGET_OVERRIDE="${{ inputs.target }}"
+          fi
+          python3 -m forge_core.cli --root . slice --rom "${{ inputs.rom }}"
+
+      - name: "Slot log (forensics)"
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slot-${{ inputs.slot }}-log
+          path: "/tmp/forge-slice.log*"
+          if-no-files-found: ignore
+          retention-days: 3

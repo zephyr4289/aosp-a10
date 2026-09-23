@@ -1,0 +1,58 @@
+# =============================================================================
+#  Nokia 6.1 (PL2 / PL2_sprout / Plate2) — SDM660 — safety profile.
+#
+#  This file is what the 14-point gate checks AGAINST. It is the difference
+#  between "built a zip" and "cannot brick your phone with this zip".
+#  Every value has a source; update sources, not vibes (docs/ADD_DEVICE.md).
+# =============================================================================
+name: nokia_pl2
+codenames: [PL2, PL2_sprout, Plate2]
+
+soc: SDM660
+arch: arm64
+kernel_version: "4.19"
+ab_update: true                   # Android One device: seamless updates
+dynamic_partitions: false         # 17.1-era sdm660 trees: static system/vendor
+
+boot_header_version: 1            # kernel 4.19 era
+dtbo_required: true                # sdm660 DTBO overlays shipped since stock Pie
+
+# --- AVB posture -------------------------------------------------------------
+avb:
+  enabled: false                  # custom ROMs for unlocked BL boot with
+                                  # verification disabled (vbmeta flags)
+  verity_disabled: true
+
+# --- partition size budgets ---------------------------------------------------
+# authority: tree  -> sizes declared by the device tree BoardConfig (verified
+#                     against out/.../misc_info.txt at gate time). A maintainer
+#                     with a stock dump should re-verify and flip authority
+#                     to 'stock' after pasting measured values (ADD_DEVICE.md).
+budgets_authority: tree
+partition_budgets:
+  system:
+    size_bytes: 3221225472        # 3.0 GiB (sdm660-common BOARD value)
+    source: "device tree lineage-17.1"
+  vendor:
+    size_bytes: 805306368         # 0.75 GiB
+    source: "device tree lineage-17.1"
+  product:
+    size_bytes: 536870912         # 0.5 GiB
+    source: "device tree lineage-17.1"
+
+# --- anti-crossflash tokens ---------------------------------------------------
+anti_crossflash:
+  ro_product_device: [PL2, PL2_sprout, Plate2]
+  fingerprint_tokens: [PL2_sprout, Plate2_00WW, PL2]
+  fastboot_product: [PL2_sprout, PL2, Plate2]
+
+# --- security patch window ----------------------------------------------------
+# HMD shipped the last Plate2 update mid-2022; SPLs beyond that are
+# device-tree fantasy and get gated.
+spl_window:
+  min: "2020-09-05"
+  max: "2023-06-05"
+
+# --- Treble / VNDK ------------------------------------------------------------
+vndk:
+  required: false                 # 17.1-era vendor: vndk baked into system
