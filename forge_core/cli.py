@@ -85,8 +85,17 @@ def cmd_probe(args, root: Path) -> int:
     store = _store(args, root)
     t = store.target(plan.rom.key)
     src_tag = t.get("src_tag", "")
+    if not src_tag:
+        try:
+            cand = [tag for tag in store.list_tags("src-") if store.exists(tag)]
+            if cand:
+                src_tag = cand[0]
+                store.target_update(plan.rom.key, src_tag=src_tag)
+        except Exception:
+            pass
     src_ok = bool(src_tag) and store.exists(src_tag) and not args.force
     log.out("src_needed", "false" if src_ok else "true")
+    log.out("src_tag", src_tag)
     log.out("done", "true" if t.get("done") else "false")
     log.out("slice", str(t.get("slice", 0)))
     log.out("state_tag", t.get("state_tag", ""))
@@ -177,8 +186,16 @@ def cmd_sync(args, root: Path) -> int:
     store = _store(args, root)
     build_root = _build_root(args)
     tag = f"src-{args.mhash}" if args.mhash else None
+    if not tag:
+        try:
+            cand = [tg for tg in store.list_tags("src-") if store.exists(tg)]
+            if cand:
+                tag = cand[0]
+        except Exception:
+            pass
     if tag and store.exists(tag):
         log.ok(f"source snapshot {tag} already banked — sync skipped")
+        store.target_update(plan.rom.key, src_tag=tag)
         log.out("src_tag", tag)
         return 0
     fp = syncer.sync_tree(plan, build_root,
@@ -204,8 +221,14 @@ def cmd_restore(args, root: Path) -> int:
     t = store.target(plan.rom.key)
     what = args.what
     if what == "src":
-        src_tag = t.get("src_tag") or f"src-{args.mhash}" if args.mhash \
-            else t.get("src_tag")
+        src_tag = t.get("src_tag") or (f"src-{args.mhash}" if args.mhash else None)
+        if not src_tag:
+            try:
+                cand = [tg for tg in store.list_tags("src-") if store.exists(tg)]
+                if cand:
+                    src_tag = cand[0]
+            except Exception:
+                pass
         if not src_tag or not store.exists(src_tag):
             log.out("source", "sync")
             return 0
@@ -264,7 +287,15 @@ def cmd_slice(args, root: Path) -> int:
         return 0
 
     # ---- 1. source ----------------------------------------------------------
-    src_tag = t.get("src_tag") or args.mhash and f"src-{args.mhash}"
+    src_tag = t.get("src_tag") or (f"src-{args.mhash}" if args.mhash else None)
+    if not src_tag:
+        try:
+            cand = [tg for tg in store.list_tags("src-") if store.exists(tg)]
+            if cand:
+                src_tag = cand[0]
+                store.target_update(plan.rom.key, src_tag=src_tag)
+        except Exception:
+            pass
     if not src_tag or not store.exists(src_tag):
         log.die(f"no source snapshot for {plan.rom.key} — the sync job must "
                 f"run first (this is a workflow wiring bug otherwise)")

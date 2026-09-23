@@ -17,6 +17,8 @@ on:
 jobs:
   slot:
     runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: write
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
