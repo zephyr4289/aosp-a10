@@ -141,6 +141,13 @@ def detect() -> RunnerEnv:
     return env
 
 
+def _safe_run(cmd: List[str], check: bool = False, **kwargs) -> Optional[subprocess.CompletedProcess]:
+    try:
+        return subprocess.run(cmd, check=check, **kwargs)
+    except (OSError, FileNotFoundError, Exception):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Runner preparation (apt packages, reclaim, swap) — the hardened 00 step.
 # ---------------------------------------------------------------------------
@@ -170,24 +177,23 @@ RECLAIM_PATHS = [
 def reclaim_disk() -> List[str]:
     """Remove fat that AOSP never touches. Returns list of what was removed."""
     if os.path.exists("/mnt"):
-        try:
-            subprocess.run(["sudo", "chmod", "1777", "/mnt"], check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
+        _safe_run(["sudo", "chmod", "1777", "/mnt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     removed = []
     for p in RECLAIM_PATHS:
         if Path(p).exists():
-            subprocess.run(["sudo", "rm", "-rf", p], check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _safe_run(["sudo", "rm", "-rf", p], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             removed.append(p)
     for cmd in (["sudo", "docker", "system", "prune", "-af"],
                 ["sudo", "apt-get", "clean"]):
-        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL)
-    for tmp in ("/var/lib/apt/lists/*", "/tmp/*", "/var/tmp/*"):
-        subprocess.run(["sudo", "rm", "-rf", tmp], check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _safe_run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for tmp in ("/var/lib/apt/lists", "/tmp", "/var/tmp"):
+        if os.path.exists(tmp):
+            for child in Path(tmp).glob("*"):
+                try:
+                    if child.is_file():
+                        child.unlink(missing_ok=True)
+                except Exception:
+                    pass
     if removed:
         log.log(f"reclaimed {len(removed)} runner blobs "
                 f"(~25-30 GB): {', '.join(p.split('/')[-1] for p in removed)}")
@@ -195,37 +201,43 @@ def reclaim_disk() -> List[str]:
 
 
 def ensure_swap(swap_path: str, size_gb: int = 4) -> bool:
-    has = subprocess.run(["swapon", "--show"], capture_output=True, text=True)
-    if has.stdout.strip():
+    has = _safe_run(["swapon", "--show"], capture_output=True, text=True)
+    if has and has.stdout.strip():
         return True
-    free = _df_free_gb(os.path.dirname(swap_path))
-    if free < size_gb + 20:
-        log.log(f"only {free:.0f} GB free on {os.path.dirname(swap_path)} — "
-                f"skipping {size_gb}G swap to protect the disk budget")
-        return False
-    for cmd in (["sudo", "fallocate", "-l", f"{size_gb}G", swap_path],
-                ["sudo", "chmod", "600", swap_path],
-                ["sudo", "mkswap", swap_path],
-                ["sudo", "swapon", swap_path]):
-        r = subprocess.run(cmd, capture_output=True, text=True)
-        if r.returncode != 0:
-            log.log(f"swap setup failed at {' '.join(cmd[:2])}: {r.stderr.strip()[:120]}")
+    try:
+        free = _df_free_gb(os.path.dirname(swap_path))
+        if free < size_gb + 20:
+            log.log(f"only {free:.0f} GB free on {os.path.dirname(swap_path)} — "
+                    f"skipping {size_gb}G swap to protect the disk budget")
             return False
-    log.log(f"swap on: {size_gb} GB at {swap_path}")
-    return True
+    except Exception:
+        pass
+    # Try fallocate first, fallback to dd
+    _safe_run(["sudo", "fallocate", "-l", f"{size_gb}G", swap_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if not os.path.exists(swap_path) or os.path.getsize(swap_path) < (size_gb * 1024 * 1024 * 1024):
+        _safe_run(["sudo", "dd", "if=/dev/zero", f"of={swap_path}", "bs=1M", f"count={size_gb * 1024}", "status=none"],
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _safe_run(["sudo", "chmod", "600", swap_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _safe_run(["sudo", "mkswap", swap_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r = _safe_run(["sudo", "swapon", swap_path], capture_output=True, text=True)
+    if r and r.returncode == 0:
+        log.log(f"swap on: {size_gb} GB at {swap_path}")
+        return True
+    return False
 
 
 def install_pkgs(pkgs: List[str]) -> None:
     """Version-profile-driven apt install (JDK etc. come from versions.yaml)."""
     if not pkgs:
         return
-    subprocess.run(["sudo", "add-apt-repository", "-y", "universe"], check=False,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(["sudo", "apt-get", "update", "-qq"], check=False,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    r = subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", *pkgs],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
+    if shutil.which("add-apt-repository"):
+        _safe_run(["sudo", "add-apt-repository", "-y", "universe"],
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _safe_run(["sudo", "apt-get", "update", "-qq"],
+              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r = _safe_run(["sudo", "apt-get", "install", "-y", "-qq", *pkgs],
+                  capture_output=True, text=True)
+    if r and r.returncode != 0:
         log.warn(f"apt install had issues (continuing): {r.stderr.strip()[:200]}")
 
 
@@ -238,13 +250,14 @@ def ncurses5_compat() -> None:
         if os.path.exists(os.path.join(base, lib)):
             continue
         stem = lib.split(".so")[0]
-        hits = [p for p in os.listdir(base) if p.startswith(stem + ".so.6")]
-        if hits:
-            os.system(f"sudo ln -sf {base}/{hits[0]} {base}/{lib}")
-    # upstream-honed symlink for the prebuilt clang stack
+        try:
+            hits = [p for p in os.listdir(base) if p.startswith(stem + ".so.6")]
+            if hits:
+                _safe_run(["sudo", "ln", "-sf", f"{base}/{hits[0]}", f"{base}/{lib}"])
+        except Exception:
+            pass
     if not os.path.exists(os.path.join(base, "libtinfo.so.5")):
-        os.system(f"sudo ln -sf {base}/libtinfo.so.6 "
-                  f"{base}/libtinfo.so.5 2>/dev/null || true")
+        _safe_run(["sudo", "ln", "-sf", f"{base}/libtinfo.so.6", f"{base}/libtinfo.so.5"])
 
 
 # ---------------------------------------------------------------------------
