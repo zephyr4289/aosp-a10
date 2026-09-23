@@ -121,12 +121,16 @@ class ReleaseStore:
 
     def download(self, tag: str, pattern: str, dest: Path) -> List[Path]:
         dest.mkdir(parents=True, exist_ok=True)
-        r = self._gh("release", "download", tag, "--pattern", pattern,
-                     "--dir", str(dest), "--clobber", check=False)
-        if r.returncode != 0:
-            raise StoreError(f"release download {tag}/{pattern}: "
-                             f"{r.stderr.strip()[:200]}")
-        return sorted(dest.glob(pattern))
+        for attempt in range(3):
+            r = self._gh("release", "download", tag, "--pattern", pattern,
+                         "--dir", str(dest), "--clobber", check=False)
+            if r.returncode == 0:
+                return sorted(dest.glob(pattern))
+            log.warn(f"download retry {attempt + 1}/3 for {tag}/{pattern}: "
+                     f"{r.stderr.strip()[:160]}")
+            time.sleep(15 * (attempt + 1))
+        raise StoreError(f"release download {tag}/{pattern} failed after retries: "
+                         f"{r.stderr.strip()[:200]}")
 
     def reset(self, tag: str, title: str, notes: str) -> None:
         """Delete+recreate — upstream's atomicity trick, kept."""
