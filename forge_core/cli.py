@@ -70,7 +70,7 @@ def _build_root(args) -> Path:
     if args.build_root:
         return Path(args.build_root)
     mnt = fenv.detect().best_mount()
-    return mnt.path / "romforge" / "aosp"
+    return Path(mnt.path) / "romforge" / "aosp"
 
 
 # ---------------------------------------------------------------------------

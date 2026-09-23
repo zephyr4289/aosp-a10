@@ -195,6 +195,8 @@ def install_pkgs(pkgs: List[str]) -> None:
 def ncurses5_compat() -> None:
     """Android-10-era host tools want ncurses5/tinfo5 sonames; link to v6."""
     base = "/usr/lib/x86_64-linux-gnu"
+    if not os.path.isdir(base):
+        return
     for lib in ("libncurses.so.5", "libtinfo.so.5", "libncursesw.so.5"):
         if os.path.exists(os.path.join(base, lib)):
             continue
