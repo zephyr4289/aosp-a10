@@ -25,14 +25,27 @@ from typing import Dict, List, Optional
 from . import log
 
 
+def _safe_run(cmd: List[str], check: bool = False, **kwargs) -> Optional[subprocess.CompletedProcess]:
+    try:
+        return subprocess.run(cmd, check=check, **kwargs)
+    except (OSError, FileNotFoundError, Exception):
+        return None
+
+
 def _df_free_gb(path: str) -> float:
-    st = os.statvfs(path)
-    return st.f_bavail * st.f_frsize / (1024 ** 3)
+    try:
+        st = os.statvfs(path)
+        return st.f_bavail * st.f_frsize / (1024 ** 3)
+    except Exception:
+        return 0.0
 
 
 def _df_total_gb(path: str) -> float:
-    st = os.statvfs(path)
-    return (st.f_blocks * st.f_frsize) / (1024 ** 3)
+    try:
+        st = os.statvfs(path)
+        return (st.f_blocks * st.f_frsize) / (1024 ** 3)
+    except Exception:
+        return 0.0
 
 
 @dataclass
@@ -58,15 +71,11 @@ class RunnerEnv:
             if m.fstype not in ("ext4", "xfs", "btrfs", "overlayfs", "tmpfs"):
                 continue
             if not os.access(m.path, os.W_OK):
-                try:
-                    subprocess.run(["sudo", "chmod", "1777", m.path], check=False,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except Exception:
-                    pass
+                _safe_run(["sudo", "chmod", "1777", m.path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if os.access(m.path, os.W_OK):
                 writable.append(m)
         if not writable:
-            return MountInfo(path="/tmp", device="tmp", fstype="tmpfs")
+            return MountInfo(path="/tmp", device="tmp", fstype="tmpfs", total_gb=_df_total_gb("/tmp"), free_gb=_df_free_gb("/tmp"))
         return max(writable, key=lambda m: m.free_gb)
 
     def best_mount_excluding(self, exclude: str) -> Optional[MountInfo]:
@@ -77,11 +86,7 @@ class RunnerEnv:
             if m.fstype not in ("ext4", "xfs", "btrfs", "overlayfs"):
                 continue
             if not os.access(m.path, os.W_OK):
-                try:
-                    subprocess.run(["sudo", "chmod", "1777", m.path], check=False,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except Exception:
-                    pass
+                _safe_run(["sudo", "chmod", "1777", m.path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if os.access(m.path, os.W_OK):
                 writable.append(m)
         return max(writable, key=lambda m: m.free_gb) if writable else None
@@ -112,40 +117,29 @@ def detect() -> RunnerEnv:
     env.is_github_actions = "GITHUB_ACTIONS" in os.environ
 
     if os.path.exists("/mnt") and not os.access("/mnt", os.W_OK):
-        try:
-            subprocess.run(["sudo", "chmod", "1777", "/mnt"], check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
+        _safe_run(["sudo", "chmod", "1777", "/mnt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     seen = {}
-    with open("/proc/mounts", encoding="ascii") as fh:
-        for raw in fh:
-            parts = raw.split()
-            if len(parts) < 3:
-                continue
-            _dev, target, fstype = parts[0], parts[1], parts[2]
-            if fstype not in ("ext4", "xfs", "btrfs", "overlayfs"):
-                continue
-            # dedupe by device, keep the mount we can write to
-            if target.startswith("/snap") or target.startswith("/boot"):
-                continue
-            seen.setdefault(_dev, MountInfo(path=target, device=_dev, fstype=fstype))
+    try:
+        with open("/proc/mounts", encoding="ascii") as fh:
+            for raw in fh:
+                parts = raw.split()
+                if len(parts) < 3:
+                    continue
+                _dev, target, fstype = parts[0], parts[1], parts[2]
+                if fstype not in ("ext4", "xfs", "btrfs", "overlayfs"):
+                    continue
+                # dedupe by device, keep the mount we can write to
+                if target.startswith("/snap") or target.startswith("/boot"):
+                    continue
+                seen.setdefault(_dev, MountInfo(path=target, device=_dev, fstype=fstype))
+    except Exception:
+        pass
     env.mounts = list(seen.values())
     for m in env.mounts:
-        try:
-            m.total_gb = _df_total_gb(m.path)
-            m.free_gb = _df_free_gb(m.path)
-        except OSError:
-            pass
+        m.total_gb = _df_total_gb(m.path)
+        m.free_gb = _df_free_gb(m.path)
     return env
-
-
-def _safe_run(cmd: List[str], check: bool = False, **kwargs) -> Optional[subprocess.CompletedProcess]:
-    try:
-        return subprocess.run(cmd, check=check, **kwargs)
-    except (OSError, FileNotFoundError, Exception):
-        return None
 
 
 # ---------------------------------------------------------------------------
