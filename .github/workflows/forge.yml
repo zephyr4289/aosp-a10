@@ -129,6 +129,8 @@ jobs:
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
+      - name: "Prepare storage volume"
+        run: sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -156,6 +158,8 @@ jobs:
         partition: ${{ fromJSON(needs.plan.outputs.turbo) }}
     steps:
       - uses: actions/checkout@v4
+      - name: "Prepare storage volume"
+        run: sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -272,12 +276,17 @@ jobs:
   # --------------------------------------------------------------------------
   verify:
     name: "14-point hard gate"
-    needs: [plan, slot-8]
-    if: always() && needs.plan.result == 'success'
+    needs: [plan, slot-1, slot-2, slot-3, slot-4]
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      (needs.slot-1.result == 'success' || needs.slot-2.result == 'success' ||
+       needs.slot-3.result == 'success' || needs.slot-4.result == 'success')
     runs-on: ${{ needs.plan.outputs.runner }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - name: "Prepare storage volume"
+        run: sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -309,6 +318,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: "Prepare storage volume"
+        run: sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml

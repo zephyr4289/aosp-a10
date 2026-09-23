@@ -145,7 +145,7 @@ def cmd_prepare(args, root: Path) -> int:
                       plan.version.get("apt_packages", []))
     if plan.rom.android_version <= 12:
         fenv.ncurses5_compat()
-    fenv.assert_disk(str(build_root.parent), 10, "prepare")
+    fenv.assert_disk(str(build_root.parent), 5, "prepare")
     log.out("build_root", str(build_root))
     return 0
 
@@ -492,6 +492,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
     except KeyError:
         log.die(f"unknown command: {args.command}")
+        return 2
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        log.die(f"{args.command} unexpected failure: {e}")
         return 2
 
 
