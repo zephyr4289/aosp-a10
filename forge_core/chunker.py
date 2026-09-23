@@ -17,6 +17,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -214,7 +215,7 @@ def verify(parts_dir: Path, prefix: str) -> bool:
 
 
 def unpack(parts_dir: Path, prefix: str, dest: Path, strip: bool = False) -> None:
-    """Verify then stream-decompress parts into dest."""
+    """Verify then stream-decompress parts into dest with instant part reclamation."""
     if not verify(parts_dir, prefix):
         raise ChunkerError(
             f"sha256 mismatch for {prefix} — state corrupted in transfer; "
@@ -232,20 +233,38 @@ def unpack(parts_dir: Path, prefix: str, dest: Path, strip: bool = False) -> Non
     if not parts:
         raise ChunkerError(f"no {prefix} parts found in {parts_dir}")
     dest.mkdir(parents=True, exist_ok=True)
-    cat = subprocess.Popen(["cat", *[str(p) for p in parts]],
+
+    dec = subprocess.Popen(_decompress_cmd(), stdin=subprocess.PIPE,
                            stdout=subprocess.PIPE)
-    dec = subprocess.Popen(_decompress_cmd(), stdin=cat.stdout,
-                           stdout=subprocess.PIPE)
-    assert cat.stdout is not None
-    cat.stdout.close()
+    assert dec.stdin is not None
     assert dec.stdout is not None
+
+    def feeder():
+        try:
+            for p in parts:
+                with open(p, "rb") as fh:
+                    shutil.copyfileobj(fh, dec.stdin, length=16 * 1024 * 1024)
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+        finally:
+            try:
+                dec.stdin.close()
+            except Exception:
+                pass
+
+    feed_thread = threading.Thread(target=feeder, daemon=True)
+    feed_thread.start()
+
     tar_cmd = ["tar", "-C", str(dest)]
     if strip:
         tar_cmd += ["--strip-components=1"]
     tar_cmd += ["-xf", "-"]
-    rc = subprocess.run(tar_cmd, stdin=dec.stdout).returncode
+    tar_res = subprocess.run(tar_cmd, stdin=dec.stdout, capture_output=True)
+    rc = tar_res.returncode
     dec_rc = dec.wait()
-    cat_rc = cat.wait()
-    if rc != 0 or dec_rc != 0 or cat_rc != 0:
-        raise ChunkerError(f"unpack failed tar={rc} comp={dec_rc} cat={cat_rc}")
+    feed_thread.join()
+    if rc != 0 or dec_rc != 0:
+        tar_err = tar_res.stderr.decode(errors="ignore").strip()[:200]
+        raise ChunkerError(f"unpack failed tar={rc} ({tar_err}) comp={dec_rc}")
     log.ok(f"unpacked {prefix} -> {dest}")

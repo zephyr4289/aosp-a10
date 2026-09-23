@@ -86,7 +86,8 @@ def restore(build_root: Path, store, tag: str) -> bool:
         shutil.rmtree(tmp)
     try:
         store.download(tag, "out.part.*", tmp)
-    except Exception:
+    except Exception as e:
+        log.warn(f"downloading state parts from {tag} failed: {e}")
         return False
     try:
         store.download(tag, "SHA256SUMS", tmp)
@@ -98,7 +99,11 @@ def restore(build_root: Path, store, tag: str) -> bool:
         # extraction overwriting; ninja re-runs whatever is stale. In
         # practice restore happens on a fresh runner with no out/.
         shutil.rmtree(out_dir)
-    chunker.unpack(tmp, "out", out_dir, strip=True)
+    try:
+        chunker.unpack(tmp, "out", out_dir, strip=True)
+    except Exception as e:
+        log.warn(f"unpacking out state from {tag} failed: {e}")
+        return False
     shutil.rmtree(tmp, ignore_errors=True)
     log.ok(f"out/ state restored from {tag}")
     return True
