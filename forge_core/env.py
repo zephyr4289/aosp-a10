@@ -53,15 +53,37 @@ class RunnerEnv:
 
     # ---- selection policies ---------------------------------------------------
     def best_mount(self, need_gb: float = 0.0) -> MountInfo:
-        writable = [m for m in self.mounts if os.access(m.path, os.W_OK)
-                    and m.fstype in ("ext4", "xfs", "btrfs", "overlayfs", "tmpfs")]
+        writable = []
+        for m in self.mounts:
+            if m.fstype not in ("ext4", "xfs", "btrfs", "overlayfs", "tmpfs"):
+                continue
+            if not os.access(m.path, os.W_OK):
+                try:
+                    subprocess.run(["sudo", "chmod", "1777", m.path], check=False,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+            if os.access(m.path, os.W_OK):
+                writable.append(m)
         if not writable:
             return MountInfo(path="/tmp", device="tmp", fstype="tmpfs")
         return max(writable, key=lambda m: m.free_gb)
 
     def best_mount_excluding(self, exclude: str) -> Optional[MountInfo]:
-        writable = [m for m in self.mounts if m.path != exclude and os.access(m.path, os.W_OK)
-                    and m.fstype in ("ext4", "xfs", "btrfs", "overlayfs")]
+        writable = []
+        for m in self.mounts:
+            if m.path == exclude:
+                continue
+            if m.fstype not in ("ext4", "xfs", "btrfs", "overlayfs"):
+                continue
+            if not os.access(m.path, os.W_OK):
+                try:
+                    subprocess.run(["sudo", "chmod", "1777", m.path], check=False,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+            if os.access(m.path, os.W_OK):
+                writable.append(m)
         return max(writable, key=lambda m: m.free_gb) if writable else None
 
     def free_gb(self, path: str) -> float:
@@ -88,6 +110,13 @@ def detect() -> RunnerEnv:
     except OSError:
         env.mem_gb = 0.0
     env.is_github_actions = "GITHUB_ACTIONS" in os.environ
+
+    if os.path.exists("/mnt") and not os.access("/mnt", os.W_OK):
+        try:
+            subprocess.run(["sudo", "chmod", "1777", "/mnt"], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
     seen = {}
     with open("/proc/mounts", encoding="ascii") as fh:
@@ -140,6 +169,12 @@ RECLAIM_PATHS = [
 
 def reclaim_disk() -> List[str]:
     """Remove fat that AOSP never touches. Returns list of what was removed."""
+    if os.path.exists("/mnt"):
+        try:
+            subprocess.run(["sudo", "chmod", "1777", "/mnt"], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
     removed = []
     for p in RECLAIM_PATHS:
         if Path(p).exists():
@@ -184,8 +219,10 @@ def install_pkgs(pkgs: List[str]) -> None:
     """Version-profile-driven apt install (JDK etc. come from versions.yaml)."""
     if not pkgs:
         return
+    subprocess.run(["sudo", "add-apt-repository", "-y", "universe"], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(["sudo", "apt-get", "update", "-qq"], check=False,
-                   stdout=subprocess.DEVNULL)
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     r = subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", *pkgs],
                        capture_output=True, text=True)
     if r.returncode != 0:

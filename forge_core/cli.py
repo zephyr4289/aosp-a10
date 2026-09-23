@@ -133,7 +133,12 @@ def cmd_prepare(args, root: Path) -> int:
     plan = _plan_from_args(args, root)
     fenv.reclaim_disk()
     build_root = _build_root(args)
-    build_root.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        build_root.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        subprocess.run(["sudo", "mkdir", "-p", str(build_root.parent)], check=False)
+        subprocess.run(["sudo", "chmod", "1777", str(build_root.parent)], check=False)
+        build_root.parent.mkdir(parents=True, exist_ok=True)
     swap_path = str(Path(build_root).parent / ".forge-swap")
     fenv.ensure_swap(swap_path, size_gb=int(plan.version.get("swap_gb", 4)))
     fenv.install_pkgs(plan.apt_packages or
