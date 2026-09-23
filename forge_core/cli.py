@@ -341,12 +341,13 @@ def cmd_slice(args, root: Path) -> int:
             log.log("cold out/ — merging any turbo prewarm states")
             turbo.merge_turbo_states(build_root, store, plan.rom.key)
 
+    syncer.ensure_prebuilts(build_root)
+
+    log_file = Path(args.log or "/tmp/forge-slice.log")
     res = engine.run_slice(plan, build_root, plan.rom.build_target, budget,
-                           Path(args.log or "/tmp/forge-slice.log"),
-                           use_ccache=use_ccache)
+                           log_file, use_ccache=use_ccache)
     log.out("classification", str(res["classification"]))
-    engine.slice_summary(res, Path(args.log or "/tmp/forge-slice.log"),
-                         build_root / "out", budget)
+    engine.slice_summary(res, log_file, build_root / "out", budget)
 
     if res["classification"] == "done":
         rom_zip = engine.find_rom_zip(plan, build_root)
@@ -375,7 +376,18 @@ def cmd_slice(args, root: Path) -> int:
         log.out("slice", str(n))
         return 0
 
-    # real error — bank what we have anyway (compiled objects are valuable)
+    # real error — dump forensics tail to console
+    if log_file.exists():
+        try:
+            lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+            log.warn(f"=== BUILD FAILED: last {min(100, len(lines))} lines of {log_file} ===")
+            for line in lines[-100:]:
+                print(line, file=sys.stderr)
+            log.warn("=== END BUILD LOG FORENSICS ===")
+        except Exception:
+            pass
+
+    # bank what we have anyway (compiled objects are valuable)
     n = int(t.get("slice", 0)) + 1
     tag = f"state-{plan.rom.key}-s{n}"
     if not store.exists(tag):

@@ -41,7 +41,11 @@ jobs:
           if [ -n "${{ inputs.target }}" ]; then
             export FORGE_TARGET_OVERRIDE="${{ inputs.target }}"
           fi
-          python3 -m forge_core.cli --root . slice --rom "${{ inputs.rom }}"
+          python3 -m forge_core.cli --root . slice --rom "${{ inputs.rom }}" || {
+            echo "::error::Build slot failed. Forensics log tail:"
+            tail -n 120 /tmp/forge-slice.log 2>/dev/null || true
+            exit 1
+          }
 
       - name: "Slot log (forensics)"
         if: failure()

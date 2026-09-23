@@ -269,7 +269,8 @@ def _du(p: Path) -> int:
 
 
 def ensure_prebuilts(build_root: Path) -> None:
-    """Ensure binary prebuilts (like chromium-webview) are valid zip files, not LFS stubs."""
+    """Ensure binary prebuilts (like chromium-webview) are valid zip files, not LFS stubs,
+    and purge any stale/corrupted intermediate artifacts from out/."""
     webview_arm64 = build_root / "external" / "chromium-webview" / "prebuilt" / "arm64" / "webview.apk"
     if (build_root / "external" / "chromium-webview").exists():
         is_valid = False
@@ -293,6 +294,9 @@ def ensure_prebuilts(build_root: Path) -> None:
                     log.ok(f"restored prebuilt chromium-webview ({len(raw) / 2**20:.1f} MB)")
             except Exception as e:
                 log.warn(f"could not download webview.apk: {e}")
+        if webview_arm64.exists():
+            now = time.time() + 10
+            os.utime(webview_arm64, (now, now))
 
     webview_arm = build_root / "external" / "chromium-webview" / "prebuilt" / "arm" / "webview.apk"
     if (build_root / "external" / "chromium-webview").exists():
@@ -317,6 +321,19 @@ def ensure_prebuilts(build_root: Path) -> None:
                     log.ok(f"restored prebuilt chromium-webview arm ({len(raw) / 2**20:.1f} MB)")
             except Exception as e:
                 log.warn(f"could not download webview.apk (arm): {e}")
+        if webview_arm.exists():
+            now = time.time() + 10
+            os.utime(webview_arm, (now, now))
+
+    # Purge any stale/broken webview intermediates in out/
+    out_dir = build_root / "out"
+    if out_dir.exists():
+        for p in out_dir.glob("target/product/*/obj/APPS/webview*"):
+            shutil.rmtree(p, ignore_errors=True)
+        for p in out_dir.glob("target/product/*/system/app/webview*"):
+            shutil.rmtree(p, ignore_errors=True)
+        for p in out_dir.glob("target/product/*/system/product/app/webview*"):
+            shutil.rmtree(p, ignore_errors=True)
 
 
 def apply_patches(plan: Plan, build_root: Path, forge_root: Path) -> List[str]:
