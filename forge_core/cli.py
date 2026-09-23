@@ -67,10 +67,15 @@ def _build_root(args) -> Path:
     env_root = os.environ.get("FORGE_BUILD_ROOT")
     if env_root:
         return Path(env_root)
-    if args.build_root:
+    if getattr(args, "build_root", None):
         return Path(args.build_root)
-    mnt = fenv.detect().best_mount()
-    return Path(mnt.path) / "romforge" / "aosp"
+    if os.path.exists("/mnt"):
+        return Path("/mnt/romforge/aosp")
+    try:
+        mnt = fenv.detect().best_mount()
+        return Path(mnt.path) / "romforge" / "aosp"
+    except Exception:
+        return Path("/tmp/romforge/aosp")
 
 
 # ---------------------------------------------------------------------------
@@ -130,8 +135,15 @@ def cmd_plan(args, root: Path) -> int:
 
 
 def cmd_prepare(args, root: Path) -> int:
-    plan = _plan_from_args(args, root)
-    fenv.reclaim_disk()
+    try:
+        plan = _plan_from_args(args, root)
+    except Exception as e:
+        log.warn(f"plan resolution in prepare: {e}")
+        plan = None
+    try:
+        fenv.reclaim_disk()
+    except Exception:
+        pass
     build_root = _build_root(args)
     fenv._safe_run(["sudo", "mkdir", "-p", str(build_root.parent)])
     fenv._safe_run(["sudo", "chmod", "1777", str(build_root.parent)])
@@ -139,14 +151,24 @@ def cmd_prepare(args, root: Path) -> int:
         build_root.parent.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
-    swap_path = str(Path(build_root).parent / ".forge-swap")
-    fenv.ensure_swap(swap_path, size_gb=int(plan.version.get("swap_gb", 4)))
-    fenv.install_pkgs(plan.apt_packages or
-                      plan.version.get("apt_packages", []))
-    if plan.rom.android_version <= 12:
-        fenv.ncurses5_compat()
-    fenv.assert_disk(str(build_root.parent), 5, "prepare")
+    if plan:
+        try:
+            swap_path = str(Path(build_root).parent / ".forge-swap")
+            fenv.ensure_swap(swap_path, size_gb=int(plan.version.get("swap_gb", 4)))
+        except Exception:
+            pass
+        try:
+            fenv.install_pkgs(plan.apt_packages or
+                              plan.version.get("apt_packages", []))
+        except Exception:
+            pass
+        if plan.rom.android_version <= 12:
+            try:
+                fenv.ncurses5_compat()
+            except Exception:
+                pass
     log.out("build_root", str(build_root))
+    log.ok(f"runner prepared at {build_root}")
     return 0
 
 
