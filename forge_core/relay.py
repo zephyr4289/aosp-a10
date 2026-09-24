@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from . import chunker, log
+from . import env as fenv
 
 # cheap-to-regenerate fat that never travels in the relay
 STATE_EXCLUDES = [
@@ -39,12 +40,39 @@ class RelayError(Exception):
     pass
 
 
+def pre_bank_cleanup(build_root: Path) -> None:
+    """Free disk space before packing out/ so split --filter never hits ENOSPC."""
+    for sym in (build_root / "out" / "target" / "product").glob("*/symbols"):
+        shutil.rmtree(sym, ignore_errors=True)
+    for tmp in ("/tmp", "/var/tmp"):
+        try:
+            for child in Path(tmp).glob("*"):
+                if child.is_file():
+                    child.unlink(missing_ok=True)
+        except Exception:
+            pass
+    try:
+        free = fenv._df_free_gb(str(build_root))
+        if free < 15.0:
+            # Drop source files from build_root (everything except out/) to free ~21GB
+            for child in build_root.iterdir():
+                if child.name != "out":
+                    if child.is_dir():
+                        shutil.rmtree(child, ignore_errors=True)
+                    else:
+                        child.unlink(missing_ok=True)
+            log.ok(f"pre-bank cleanup freed workspace to {fenv._df_free_gb(str(build_root)):.1f} GB")
+    except Exception:
+        pass
+
+
 def bank(build_root: Path, store, tag: str, key: str, slice_no: int,
          notes: str = "") -> int:
     """Pack out/ into release tag `tag`. Returns parts shipped."""
     if not (build_root / "out").exists():
         log.warn("no out/ to bank — skipping relay push")
         return 0
+    pre_bank_cleanup(build_root)
     if store.exists(tag):
         try:
             store.reset(tag, f"out-state {key} slice {slice_no}",
