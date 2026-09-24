@@ -279,8 +279,8 @@ jobs:
     needs: [plan, slot-1, slot-2, slot-3, slot-4]
     if: >-
       always() && needs.plan.result == 'success' &&
-      (needs.slot-1.result == 'success' || needs.slot-2.result == 'success' ||
-       needs.slot-3.result == 'success' || needs.slot-4.result == 'success')
+      !contains(needs.slot-1.result, 'failure') && !contains(needs.slot-2.result, 'failure') &&
+      !contains(needs.slot-3.result, 'failure') && !contains(needs.slot-4.result, 'failure')
     runs-on: ${{ needs.plan.outputs.runner }}
     timeout-minutes: 120
     steps:
@@ -295,7 +295,6 @@ jobs:
         run: python3 -m forge_core.cli --root . prepare --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
       - name: "Verify (gate)"
         id: gate
-        continue-on-error: true
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           python3 -m forge_core.cli --root . verify \
@@ -312,7 +311,7 @@ jobs:
 
   publish:
     name: "Publish (gate-gated)"
-    needs: verify
+    needs: [plan, verify]
     if: always() && needs.verify.result == 'success'
     runs-on: ${{ needs.plan.outputs.runner || 'ubuntu-22.04' }}
     timeout-minutes: 60
