@@ -70,6 +70,32 @@ class TestStressDisk(unittest.TestCase):
         chunker.unpack_from_store(fs, tag, "out", dest, strip=False)
         self.assertTrue((dest / "payload" / "file_0.txt").exists())
 
+    def test_reclaim_ladder_preserves_directory_structure_for_ninja_cp(self):
+        """reclaim_ladder must delete files but preserve directory trees so ninja cp commands never fail."""
+        hw_dir = self.build_root / "out" / "target" / "product" / "PL2" / "symbols" / "vendor" / "bin" / "hw"
+        hw_dir.mkdir(parents=True, exist_ok=True)
+        target_file = hw_dir / "android.hardware.biometrics.fingerprint@2.1-service"
+        target_file.write_bytes(b"x" * (1024 * 1024))
+
+        from forge_core import env as fenv
+        with patch("forge_core.env._df_free_gb", return_value=1.0):
+            freed = fenv.reclaim_ladder(self.build_root, want_gb=10.0)
+
+        self.assertGreater(freed, 0)
+        # File should be unlinked
+        self.assertFalse(target_file.exists())
+        # Directory tree MUST be preserved
+        self.assertTrue(hw_dir.exists(), "Directory hierarchy was wiped, which breaks subsequent ninja cp commands!")
+
+        # Simulate ninja executing `cp src dst` into hw_dir without mkdir -p
+        src_dummy = self.tmp / "dummy_binary"
+        src_dummy.write_bytes(b"test")
+        try:
+            shutil.copy(src_dummy, target_file)
+        except FileNotFoundError:
+            self.fail("ninja cp failed with FileNotFoundError because directory was destroyed by ladder!")
+        self.assertTrue(target_file.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
