@@ -110,16 +110,17 @@ def restore(build_root: Path, store, tag: str) -> bool:
     if not store.exists(tag):
         return False
     out_dir = build_root / "out"
-    if out_dir.is_symlink():
-        dest = out_dir.resolve()
-        dest.mkdir(parents=True, exist_ok=True)
-    elif out_dir.exists():
-        shutil.rmtree(out_dir, ignore_errors=True)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        dest = out_dir
-    else:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        dest = out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if not out_dir.is_symlink():
+        for child in out_dir.iterdir():
+            try:
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
+            except OSError:
+                pass
+    dest = out_dir.resolve() if out_dir.is_symlink() else out_dir
     try:
         chunker.unpack_from_store(store, tag, "out", dest, strip=True)
     except Exception as e:
