@@ -133,7 +133,7 @@ jobs:
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
           sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
-          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -165,7 +165,7 @@ jobs:
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
           sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
-          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -197,7 +197,7 @@ jobs:
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
           sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
-          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -230,7 +230,7 @@ jobs:
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
           sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
-          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -263,7 +263,7 @@ jobs:
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
           sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
-          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -296,7 +296,7 @@ jobs:
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
           sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
-          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -329,7 +329,7 @@ jobs:
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
           sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
-          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -362,7 +362,7 @@ jobs:
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
           sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
-          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -398,7 +398,7 @@ jobs:
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
           sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
-          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml
@@ -433,7 +433,7 @@ jobs:
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
           sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
-          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: python3 -m pip install --quiet pyyaml

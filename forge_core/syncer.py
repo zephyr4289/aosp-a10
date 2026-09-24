@@ -124,8 +124,17 @@ def restore_source(build_root: Path, store, tag: str) -> bool:
         log.warn(f"unpacking source from {tag} failed: {e}")
         return False
     if build_root.exists():
-        shutil.rmtree(build_root)
+        shutil.rmtree(build_root, ignore_errors=True)
     incoming.rename(build_root)
+    if os.path.exists("/mnt"):
+        mnt_out = Path("/mnt/romforge/out")
+        mnt_out.mkdir(parents=True, exist_ok=True)
+        out_link = build_root / "out"
+        if not out_link.exists() and not out_link.is_symlink():
+            try:
+                out_link.symlink_to(mnt_out)
+            except Exception:
+                pass
     if not (build_root / "build" / "envsetup.sh").exists():
         raise SyncError("restored source incomplete (no envsetup.sh) — "
                         "delete the src-* release and rerun")

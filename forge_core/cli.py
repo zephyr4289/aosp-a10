@@ -70,7 +70,9 @@ def _build_root(args) -> Path:
     if getattr(args, "build_root", None):
         return Path(args.build_root)
     if os.path.exists("/mnt"):
-        return Path("/mnt/romforge/aosp")
+        # Source tree on root drive (where 45 GB free space is reclaimed),
+        # Out tree on /mnt (where 64 GB ephemeral drive is available)
+        return Path("/opt/romforge/aosp")
     try:
         mnt = fenv.detect().best_mount()
         return Path(mnt.path) / "romforge" / "aosp"
@@ -158,8 +160,20 @@ def cmd_prepare(args, root: Path) -> int:
     fenv._safe_run(["sudo", "chmod", "1777", str(build_root.parent)])
     try:
         build_root.parent.mkdir(parents=True, exist_ok=True)
+        build_root.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
+    if os.path.exists("/mnt"):
+        mnt_out = Path("/mnt/romforge/out")
+        fenv._safe_run(["sudo", "mkdir", "-p", str(mnt_out)])
+        fenv._safe_run(["sudo", "chmod", "1777", str(mnt_out)])
+        fenv._safe_run(["sudo", "chmod", "1777", "/mnt/romforge"])
+        out_link = build_root / "out"
+        if not out_link.exists() and not out_link.is_symlink():
+            try:
+                out_link.symlink_to(mnt_out)
+            except Exception:
+                pass
     if plan:
         try:
             swap_path = str(Path(build_root).parent / ".forge-swap")

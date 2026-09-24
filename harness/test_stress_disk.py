@@ -96,6 +96,42 @@ class TestStressDisk(unittest.TestCase):
             self.fail("ninja cp failed with FileNotFoundError because directory was destroyed by ladder!")
         self.assertTrue(target_file.exists())
 
+    def test_dual_volume_split_storage_unpack_and_pack(self):
+        """Source tree and out/ on separate mounts (symlink out/) must pack and restore seamlessly."""
+        root_vol = self.tmp / "vol_root"
+        mnt_vol = self.tmp / "vol_mnt"
+        root_vol.mkdir()
+        mnt_vol.mkdir()
+
+        # Build root on root_vol, out on mnt_vol
+        b_root = root_vol / "aosp"
+        b_root.mkdir()
+        mnt_out = mnt_vol / "romforge_out"
+        mnt_out.mkdir()
+        (b_root / "out").symlink_to(mnt_out)
+
+        (mnt_out / ".ninja_log").write_text("# ninja log\n")
+        (mnt_out / "target.img").write_bytes(b"image")
+
+        fs = store.FsStore(self.tmp / "store_dual")
+        tag = "state-dual-test"
+        fs.create(tag, "dual volume", "notes")
+
+        # Bank state (stream pack follows out/)
+        n = relay.bank(b_root, fs, tag, "dual-key", 1, notes="test")
+        self.assertGreater(n, 0)
+
+        # Restore into new tree with symlinked out
+        new_root = root_vol / "new_aosp"
+        new_root.mkdir()
+        new_mnt_out = mnt_vol / "new_out"
+        new_mnt_out.mkdir()
+        (new_root / "out").symlink_to(new_mnt_out)
+
+        ok = relay.restore(new_root, fs, tag)
+        self.assertTrue(ok)
+        self.assertTrue((new_mnt_out / "target.img").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

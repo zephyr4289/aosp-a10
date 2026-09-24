@@ -110,10 +110,18 @@ def restore(build_root: Path, store, tag: str) -> bool:
     if not store.exists(tag):
         return False
     out_dir = build_root / "out"
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
+    if out_dir.is_symlink():
+        dest = out_dir.resolve()
+        dest.mkdir(parents=True, exist_ok=True)
+    elif out_dir.exists():
+        shutil.rmtree(out_dir, ignore_errors=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dest = out_dir
+    else:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dest = out_dir
     try:
-        chunker.unpack_from_store(store, tag, "out", out_dir, strip=True)
+        chunker.unpack_from_store(store, tag, "out", dest, strip=True)
     except Exception as e:
         log.warn(f"unpacking out state from {tag} failed: {e}")
         return False

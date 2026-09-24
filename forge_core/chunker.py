@@ -64,7 +64,7 @@ def _hash_file(path: Path) -> str:
 def _run_pack_pipeline(root: Path, member: str, excludes: List[str],
                        split_args: List[str], split_stdout=subprocess.DEVNULL
                        ) -> "subprocess.Popen[int]":
-    cmd = ["tar", "-C", str(root), "-cf", "-", *_exclude_args(excludes), member]
+    cmd = ["tar", "-h", "-C", str(root), "-cf", "-", *_exclude_args(excludes), member]
     comp = _compress_cmd()
     tar_p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     zst_p = subprocess.Popen(comp, stdin=tar_p.stdout, stdout=subprocess.PIPE)
