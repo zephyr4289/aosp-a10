@@ -126,10 +126,6 @@ def restore_source(build_root: Path, store, tag: str) -> bool:
     if build_root.exists():
         shutil.rmtree(build_root)
     incoming.rename(build_root)
-    # Prune .git and .repo directories from restored source to free ~6-8 GB
-    subprocess.run(["find", str(build_root), "-type", "d", "-name", ".git", "-exec", "rm", "-rf", "{}", "+"],
-                   capture_output=True, check=False)
-    shutil.rmtree(build_root / ".repo", ignore_errors=True)
     if not (build_root / "build" / "envsetup.sh").exists():
         raise SyncError("restored source incomplete (no envsetup.sh) — "
                         "delete the src-* release and rerun")
