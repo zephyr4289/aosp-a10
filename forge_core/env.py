@@ -291,6 +291,8 @@ def reclaim_ladder(root: Path, want_gb: float = 8.0) -> float:
 
     Returns bytes freed. NEVER touches anything ninja cannot regenerate
     cheaply — that is the entire safety argument (see TECHNICAL.md §5).
+    Unlinks individual files while preserving directory hierarchy so concurrent
+    and future ninja copy commands never fail with ENOENT.
     """
     freed = 0.0
     for pattern in LADDER_PATTERNS:
@@ -298,10 +300,25 @@ def reclaim_ladder(root: Path, want_gb: float = 8.0) -> float:
             break
         for p in root.glob(pattern):
             if p.is_dir():
-                size = _dir_size(p)
-                shutil.rmtree(p, ignore_errors=True)
+                size = 0
+                for f in p.rglob("*"):
+                    try:
+                        if f.is_file():
+                            sz = f.stat().st_size
+                            f.unlink(missing_ok=True)
+                            size += sz
+                    except OSError:
+                        pass
                 freed += size
-                log.log(f"ladder: reclaimed {size / 2**30:.1f} GB at {p}")
+                if size > 0:
+                    log.log(f"ladder: reclaimed {size / 2**30:.1f} GB at {p}")
+            elif p.is_file():
+                try:
+                    sz = p.stat().st_size
+                    p.unlink(missing_ok=True)
+                    freed += sz
+                except OSError:
+                    pass
     return freed
 
 

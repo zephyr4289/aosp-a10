@@ -124,11 +124,6 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                 free = fenv._df_free_gb(str(build_root))
             except OSError:
                 continue
-            if free < 15.0:
-                # Proactively wipe unneeded symbols fat before disk becomes critical
-                for sym_path in (build_root / "out" / "target" / "product").glob("*/symbols"):
-                    if sym_path.exists():
-                        shutil.rmtree(sym_path, ignore_errors=True)
             if free < min_free_gb + 4:
                 freed = fenv.reclaim_ladder(build_root, want_gb=min_free_gb + 4)
                 if freed > 0:
