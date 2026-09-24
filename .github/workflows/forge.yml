@@ -315,14 +315,81 @@ jobs:
           fi
           python3 -m forge_core.cli --root . slice --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
 
+  slot-5:
+    name: "Slot 5"
+    needs: [plan, slot-4]
+    if: always() && needs.plan.result == 'success' && needs.slot-4.result == 'success'
+    runs-on: ${{ needs.plan.outputs.runner }}
+    permissions:
+      contents: write
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Prepare storage volume"
+        run: |
+          sudo systemctl stop docker containerd 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+      - name: "Prepare runner"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
+      - name: "Build slot 5"
+        id: slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORGE_SLOT: "5"
+        run: |
+          set -euo pipefail
+          if [ -n "${{ needs.plan.outputs.target }}" ]; then
+            export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
+          fi
+          python3 -m forge_core.cli --root . slice --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
+
+  slot-6:
+    name: "Slot 6"
+    needs: [plan, slot-5]
+    if: always() && needs.plan.result == 'success' && needs.slot-5.result == 'success'
+    runs-on: ${{ needs.plan.outputs.runner }}
+    permissions:
+      contents: write
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Prepare storage volume"
+        run: |
+          sudo systemctl stop docker containerd 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge && sudo chmod 1777 /mnt /mnt/romforge 2>/dev/null || true
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+      - name: "Prepare runner"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
+      - name: "Build slot 6"
+        id: slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORGE_SLOT: "6"
+        run: |
+          set -euo pipefail
+          if [ -n "${{ needs.plan.outputs.target }}" ]; then
+            export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
+          fi
+          python3 -m forge_core.cli --root . slice --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
+
   # --------------------------------------------------------------------------
   verify:
     name: "14-point hard gate"
-    needs: [plan, slot-1, slot-2, slot-3, slot-4]
+    needs: [plan, slot-1, slot-2, slot-3, slot-4, slot-5, slot-6]
     if: >-
       always() && needs.plan.result == 'success' &&
       !contains(needs.slot-1.result, 'failure') && !contains(needs.slot-2.result, 'failure') &&
-      !contains(needs.slot-3.result, 'failure') && !contains(needs.slot-4.result, 'failure')
+      !contains(needs.slot-3.result, 'failure') && !contains(needs.slot-4.result, 'failure') &&
+      !contains(needs.slot-5.result, 'failure') && !contains(needs.slot-6.result, 'failure')
     runs-on: ${{ needs.plan.outputs.runner }}
     timeout-minutes: 120
     steps:

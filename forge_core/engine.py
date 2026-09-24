@@ -116,17 +116,27 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
         log.warn("grace period over — SIGKILL backstop")
         _pg(signal.SIGKILL)
 
-    # ---- disk watchdog: ladder BEFORE ENOSPC ----------------------------------
+    # ---- disk watchdog: proactive sweeper + ladder BEFORE ENOSPC ------------
     def disk_watchdog() -> None:
-        while not stop.wait(60):
+        while not stop.wait(15):
             try:
                 free = fenv._df_free_gb(str(build_root))
             except OSError:
                 continue
+            if free < 15.0:
+                # Proactively wipe unneeded symbols fat before disk becomes critical
+                for sym_path in (build_root / "out" / "target" / "product").glob("*/symbols"):
+                    if sym_path.exists():
+                        shutil.rmtree(sym_path, ignore_errors=True)
             if free < min_free_gb + 4:
                 freed = fenv.reclaim_ladder(build_root, want_gb=min_free_gb + 4)
-                log.warn(f"disk low ({free:.1f} GB) — ladder freed "
-                         f"{freed / 2**30:.1f} GB")
+                if freed > 0:
+                    log.warn(f"disk low ({free:.1f} GB) — ladder freed "
+                             f"{freed / 2**30:.1f} GB")
+            try:
+                free = fenv._df_free_gb(str(build_root))
+            except OSError:
+                continue
             if free < 2.0:
                 log.warn("disk critical — early graceful slice stop")
                 stopped_by_watchdog.set()

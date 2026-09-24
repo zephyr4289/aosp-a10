@@ -38,8 +38,10 @@ patches:
 
 env:
   WITH_DEXPREOPT: "false"         # massive time + disk saver; boot a bit slower
+  DONT_INSTALL_DEX_DEBUG_INFO: "true" # eliminate debug symbols bloat
+  DONT_UNSTRIP: "1"               # prevent huge symbols tree growth
 
-slices: 4                         # A10 on 4 vCPU: ~12 cold-hours -> 3-4 slices
+slices: 6                         # A10 on 4 vCPU: chained slots
 slice_build_seconds: 16500        # 275 min build inside a 350 min job wall
 
 turbo:
