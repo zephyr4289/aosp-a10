@@ -268,3 +268,89 @@ def unpack(parts_dir: Path, prefix: str, dest: Path, strip: bool = False) -> Non
         tar_err = tar_res.stderr.decode(errors="ignore").strip()[:200]
         raise ChunkerError(f"unpack failed tar={rc} ({tar_err}) comp={dec_rc}")
     log.ok(f"unpacked {prefix} -> {dest}")
+
+
+def unpack_from_store(store, tag: str, prefix: str, dest: Path,
+                      strip: bool = False, tmp_dir: Optional[Path] = None) -> None:
+    """Stream-download and unpack parts one-by-one directly from store to dest.
+
+    Guarantees that at most ONE 2GB part file exists on disk at any moment,
+    eliminating the 20-30GB staging disk overhead completely.
+    """
+    tmp_dir = tmp_dir or (dest.parent / f".forge-dl-{prefix}-stream")
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    sums_file = tmp_dir / "SHA256SUMS"
+    expected_sums: Dict[str, str] = {}
+    part_names: List[str] = []
+
+    try:
+        store.download_file(tag, "SHA256SUMS", sums_file)
+        if sums_file.exists():
+            for line in sums_file.read_text(encoding="ascii", errors="ignore").splitlines():
+                if not line.strip():
+                    continue
+                tokens = line.split()
+                if len(tokens) >= 2 and f"{prefix}.part." in tokens[1]:
+                    h, name = tokens[0], tokens[1]
+                    expected_sums[name] = h
+                    part_names.append(name)
+    except Exception:
+        pass
+
+    if not part_names:
+        assets = store.list_assets(tag)
+        part_names = sorted([a for a in assets if f"{prefix}.part." in a])
+
+    if not part_names:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise ChunkerError(f"no {prefix} parts found in {tag}")
+
+    dest.mkdir(parents=True, exist_ok=True)
+    dec = subprocess.Popen(_decompress_cmd(), stdin=subprocess.PIPE,
+                           stdout=subprocess.PIPE)
+    assert dec.stdin is not None
+    assert dec.stdout is not None
+    feeder_error = []
+
+    def feeder():
+        try:
+            for name in part_names:
+                part_path = tmp_dir / name
+                store.download_file(tag, name, part_path)
+                if name in expected_sums:
+                    got_h = _hash_file(part_path)
+                    if got_h != expected_sums[name]:
+                        feeder_error.append(
+                            f"sha256 mismatch for {name}: expected {expected_sums[name]} got {got_h}")
+                        part_path.unlink(missing_ok=True)
+                        return
+                with open(part_path, "rb") as fh:
+                    shutil.copyfileobj(fh, dec.stdin, length=16 * 1024 * 1024)
+                part_path.unlink(missing_ok=True)
+        except Exception as e:
+            feeder_error.append(str(e))
+        finally:
+            try:
+                dec.stdin.close()
+            except Exception:
+                pass
+
+    feed_thread = threading.Thread(target=feeder, daemon=True)
+    feed_thread.start()
+
+    tar_cmd = ["tar", "-C", str(dest)]
+    if strip:
+        tar_cmd += ["--strip-components=1"]
+    tar_cmd += ["-xf", "-"]
+    tar_res = subprocess.run(tar_cmd, stdin=dec.stdout, capture_output=True)
+    rc = tar_res.returncode
+    dec_rc = dec.wait()
+    feed_thread.join()
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if feeder_error:
+        raise ChunkerError(f"part download failed during unpack: {feeder_error[0]}")
+    if rc != 0 or dec_rc != 0:
+        tar_err = tar_res.stderr.decode(errors="ignore").strip()[:200]
+        raise ChunkerError(f"unpack failed tar={rc} ({tar_err}) comp={dec_rc}")
+    log.ok(f"unpacked {prefix} from {tag} -> {dest}")

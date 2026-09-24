@@ -115,30 +115,17 @@ def snapshot_source(build_root: Path, store, tag: str, title: str,
 
 def restore_source(build_root: Path, store, tag: str) -> bool:
     """Restore tree from `tag`; returns False if no parts exist."""
-    tmp = build_root.parent / ".forge-dl-src"
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    try:
-        store.download(tag, "src.part.*", tmp)
-    except Exception as e:
-        log.warn(f"could not download source parts from {tag}: {e}")
-        return False
-    try:
-        store.download(tag, "SHA256SUMS", tmp)  # optional
-    except Exception:
-        pass
     incoming = build_root.parent / ".forge-src-incoming"
     if incoming.exists():
         shutil.rmtree(incoming)
     try:
-        chunker.unpack(tmp, "src", incoming, strip=True)
+        chunker.unpack_from_store(store, tag, "src", incoming, strip=True)
     except Exception as e:
         log.warn(f"unpacking source from {tag} failed: {e}")
         return False
     if build_root.exists():
         shutil.rmtree(build_root)
     incoming.rename(build_root)
-    shutil.rmtree(tmp, ignore_errors=True)
     if not (build_root / "build" / "envsetup.sh").exists():
         raise SyncError("restored source incomplete (no envsetup.sh) — "
                         "delete the src-* release and rerun")

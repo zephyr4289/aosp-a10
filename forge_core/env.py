@@ -165,6 +165,17 @@ RECLAIM_PATHS = [
     "/usr/lib/mono",
     "/usr/lib/jvm/temurin-17-jdk-amd64",
     "/usr/lib/jvm/temurin-11-jdk-amd64",
+    "/var/lib/docker",
+    "/var/lib/containerd",
+    "/etc/docker",
+    "/usr/local/share/vcpkg",
+    "/usr/local/aws-cli",
+    "/usr/local/aws-sam-cli",
+    "/imagegeneration",
+    "/root/.rustup",
+    "/home/runner/.rustup",
+    "/root/.cargo",
+    "/home/runner/.cargo",
 ]
 
 
@@ -172,6 +183,8 @@ def reclaim_disk() -> List[str]:
     """Remove fat that AOSP never touches. Returns list of what was removed."""
     if os.path.exists("/mnt"):
         _safe_run(["sudo", "chmod", "1777", "/mnt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _safe_run(["sudo", "systemctl", "stop", "docker"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _safe_run(["sudo", "systemctl", "stop", "containerd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     removed = []
     for p in RECLAIM_PATHS:
         if Path(p).exists():
@@ -190,7 +203,7 @@ def reclaim_disk() -> List[str]:
                     pass
     if removed:
         log.log(f"reclaimed {len(removed)} runner blobs "
-                f"(~25-30 GB): {', '.join(p.split('/')[-1] for p in removed)}")
+                f"(~35-45 GB): {', '.join(p.split('/')[-1] for p in removed)}")
     return removed
 
 

@@ -81,30 +81,14 @@ def restore(build_root: Path, store, tag: str) -> bool:
     """Unpack a banked out/ back into the tree. False = tag absent."""
     if not store.exists(tag):
         return False
-    tmp = build_root.parent / ".forge-dl-state"
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    try:
-        store.download(tag, "out.part.*", tmp)
-    except Exception as e:
-        log.warn(f"downloading state parts from {tag} failed: {e}")
-        return False
-    try:
-        store.download(tag, "SHA256SUMS", tmp)
-    except Exception:
-        pass
     out_dir = build_root / "out"
     if out_dir.exists():
-        # merge semantics: restored (older) state wins on mtime via tar
-        # extraction overwriting; ninja re-runs whatever is stale. In
-        # practice restore happens on a fresh runner with no out/.
         shutil.rmtree(out_dir)
     try:
-        chunker.unpack(tmp, "out", out_dir, strip=True)
+        chunker.unpack_from_store(store, tag, "out", out_dir, strip=True)
     except Exception as e:
         log.warn(f"unpacking out state from {tag} failed: {e}")
         return False
-    shutil.rmtree(tmp, ignore_errors=True)
     log.ok(f"out/ state restored from {tag}")
     return True
 

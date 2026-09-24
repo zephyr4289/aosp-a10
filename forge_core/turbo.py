@@ -84,28 +84,18 @@ def merge_turbo_states(build_root: Path, store, key: str) -> int:
     for tag in store.list_tags(f"state-{key}-turbo-"):
         part = tag.rsplit("-", 1)[-1]
         tmp = build_root.parent / f".forge-turbo-{part}"
-        if tmp.exists():
-            continue  # already merged this generation
-        try:
-            store.download(tag, "out.part.*", tmp)
-        except Exception as e:  # noqa: BLE001
-            log.warn(f"turbo state {tag} unreadable ({e}) — skipping")
-            continue
-        try:
-            store.download(tag, "SHA256SUMS", tmp)
-        except Exception:
-            pass
-        donor = tmp.parent / f".forge-turbo-incoming-{part}"
+        donor = build_root.parent / f".forge-turbo-incoming-{part}"
         if donor.exists():
             continue
         try:
             from . import chunker
-            chunker.unpack(tmp, "out", donor, strip=False)
+            chunker.unpack_from_store(store, tag, "out", donor, strip=False)
             relay.merge(build_root, donor / "out")
             merged += 1
+        except Exception as e:
+            log.warn(f"turbo state {tag} unpack failed ({e}) — skipping")
         finally:
             import shutil
-            shutil.rmtree(tmp, ignore_errors=True)
             shutil.rmtree(donor, ignore_errors=True)
     if merged:
         log.ok(f"turbo: merged {merged} partition states into out/")
