@@ -180,10 +180,37 @@ RECLAIM_PATHS = [
 ]
 
 
+def setup_compressed_volume() -> None:
+    """Setup a btrfs compressed volume on /mnt/romforge if supported.
+
+    Transparent zstd compression gives 2.5x-3.5x space multiplication on-the-fly for
+    AOSP object binaries, expanding a 64 GB runner SSD volume into 150+ GB usable disk.
+    """
+    if not os.path.exists("/mnt"):
+        return
+    mount_pt = Path("/mnt/romforge")
+    mount_pt.mkdir(parents=True, exist_ok=True)
+    if os.path.ismount(str(mount_pt)):
+        return
+
+    if shutil.which("mkfs.btrfs"):
+        loop_img = Path("/mnt/btrfs_vol.img")
+        if not loop_img.exists():
+            _safe_run(["sudo", "truncate", "-s", "150G", str(loop_img)])
+            _safe_run(["sudo", "mkfs.btrfs", "-f", "-m", "single", "-d", "single", str(loop_img)],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _safe_run(["sudo", "mount", "-o", "loop,compress=zstd:1,space_cache=v2,nodatacow", str(loop_img), str(mount_pt)],
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _safe_run(["sudo", "chmod", "1777", str(mount_pt)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.path.ismount(str(mount_pt)):
+            log.log("setup transparent btrfs zstd:1 compressed volume on /mnt/romforge (150G effective budget)")
+
+
 def reclaim_disk() -> List[str]:
     """Remove fat that AOSP never touches. Returns list of what was removed."""
     if os.path.exists("/mnt"):
         _safe_run(["sudo", "chmod", "1777", "/mnt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    setup_compressed_volume()
     _safe_run(["sudo", "systemctl", "stop", "docker"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     _safe_run(["sudo", "systemctl", "stop", "containerd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     removed = []

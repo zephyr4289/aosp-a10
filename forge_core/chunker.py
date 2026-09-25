@@ -35,10 +35,10 @@ def _have_zstd() -> bool:
     return shutil.which("zstd") is not None
 
 
-def _compress_cmd(level: int = 3) -> List[str]:
+def _compress_cmd(level: int = 1) -> List[str]:
     if _have_zstd():
         return ["zstd", "-T0", f"-{level}", "-c"]
-    return ["gzip", "-3", "-c"]      # local-test fallback (GHA always has zstd)
+    return ["gzip", "-1", "-c"]      # local-test fallback (GHA always has zstd)
 
 
 def _decompress_cmd() -> List[str]:
