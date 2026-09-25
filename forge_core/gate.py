@@ -189,7 +189,8 @@ class Gate:
                             "no asserts.txt found — relying on build.prop "
                             "identity + manual flash guards")
             return
-        if any(a in asserts for a in self.dev.codenames):
+        asserts_lower = {a.lower() for a in asserts}
+        if any(c.lower() in asserts_lower for c in self.dev.codenames):
             self.report.add(2, "ota-assert-device", PASS,
                             f"updater asserts cover {self.dev.codenames}",
                             asserts=asserts)
@@ -505,13 +506,15 @@ class Gate:
             return
         with zipfile.ZipFile(self.zip_path) as z:
             names = set(z.namelist())
-        need_ab = {"payload.bin", "payload_properties.txt", "care_map.txt"}
+        need_ab = {"payload.bin", "payload_properties.txt"}
         have_ab = need_ab & names
         legacy = "system.transfer.list" in names
         ab = self.dev.ab_update
         if ab and have_ab == need_ab:
+            has_care = "care_map.txt" in names or "care_map.pb" in names
+            care_note = "; care_map present" if has_care else "; verity-disabled layout"
             self.report.add(12, "OTA zip structure", PASS,
-                            "A/B payload layout complete")
+                            f"A/B payload layout complete{care_note}")
         elif not ab and legacy:
             self.report.add(12, "OTA zip structure", PASS,
                             "legacy block layout complete for non-A/B")

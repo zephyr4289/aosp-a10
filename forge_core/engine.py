@@ -34,11 +34,16 @@ class BuildError(Exception):
     pass
 
 
-FASTBOOT_ZIP_PAT = re.compile(r"(-img-.*|fastboot).*\.zip$")
+FASTBOOT_ZIP_PAT = re.compile(r"(-img-.*|fastboot|target_files|otatools|symbols|apps).*\.zip$", re.IGNORECASE)
 
 
 def build_env(plan, build_root: Path, use_ccache: bool = False) -> Dict[str, str]:
     e = dict(os.environ)
+    # Route temporary file creation to high-capacity storage volume if present
+    tmp_path = Path("/mnt/romforge/tmp")
+    if Path("/mnt/romforge").exists():
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        e["TMPDIR"] = str(tmp_path)
     e.update({
         "LC_ALL": "C",
         "OUT_DIR": str(build_root / "out"),

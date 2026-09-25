@@ -32,6 +32,8 @@ STATE_EXCLUDES = [
     "out/target/product/*/obj/*/oat_x86*",
     "out/target/product/*/*.img.new",
     "out/soong/.temp-dir*",
+    "out/soong/.temp*",
+    "out/soong/.temp",
     "out/.reclaim_tmp",
 ]
 
@@ -126,6 +128,20 @@ def restore(build_root: Path, store, tag: str) -> bool:
     except Exception as e:
         log.warn(f"unpacking out state from {tag} failed: {e}")
         return False
+    # Clean stale temporary directory inside out/soong
+    soong_temp = dest / "soong" / ".temp"
+    if soong_temp.exists():
+        shutil.rmtree(soong_temp, ignore_errors=True)
+    # Ensure host tool binaries retain execution bit
+    for b_dir in (dest / "soong" / "host" / "linux-x86" / "bin",
+                 dest / "host" / "linux-x86" / "bin"):
+        if b_dir.exists():
+            for f in b_dir.glob("*"):
+                if f.is_file():
+                    try:
+                        f.chmod(f.stat().st_mode | 0o755)
+                    except OSError:
+                        pass
     log.ok(f"out/ state restored from {tag}")
     return True
 

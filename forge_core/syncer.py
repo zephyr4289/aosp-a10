@@ -273,63 +273,80 @@ def _du(p: Path) -> int:
 
 
 def ensure_prebuilts(build_root: Path) -> None:
-    """Ensure binary prebuilts (like chromium-webview) are valid zip files, not LFS stubs,
-    and purge any stale/corrupted intermediate artifacts from out/."""
-    webview_arm64 = build_root / "external" / "chromium-webview" / "prebuilt" / "arm64" / "webview.apk"
-    if (build_root / "external" / "chromium-webview").exists():
-        is_valid = False
-        if webview_arm64.exists() and webview_arm64.stat().st_size > 1000000:
+    """Ensure binary prebuilts (like chromium-webview and android.jar SDK stubs)
+    are valid jar/zip files, not missing or LFS stubs, ensure host tools have
+    executable permissions, and purge any stale intermediate artifacts."""
+    past_epoch = 1577836800.0  # 2020-01-01 00:00:00 UTC (deterministic past mtime)
+
+    # 1. Chromium Webview (arm64 & arm)
+    for arch in ("arm64", "arm"):
+        webview_path = build_root / "external" / "chromium-webview" / "prebuilt" / arch / "webview.apk"
+        if (build_root / "external" / "chromium-webview").exists():
+            is_valid = False
+            if webview_path.exists() and webview_path.stat().st_size > 1000000:
+                try:
+                    with open(webview_path, "rb") as fh:
+                        if fh.read(2) == b"PK":
+                            is_valid = True
+                except Exception:
+                    pass
+            if not is_valid:
+                log.log(f"fetching valid prebuilt chromium-webview {arch} binary...")
+                try:
+                    import urllib.request, base64
+                    url = f"https://android.googlesource.com/platform/external/chromium-webview/+/refs/tags/android-10.0.0_r41/prebuilt/{arch}/webview.apk?format=TEXT"
+                    req = urllib.request.Request(url, headers={"User-Agent": "ROMForge"})
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        raw = base64.b64decode(resp.read())
+                        webview_path.parent.mkdir(parents=True, exist_ok=True)
+                        webview_path.write_bytes(raw)
+                        log.ok(f"restored prebuilt chromium-webview {arch} ({len(raw) / 2**20:.1f} MB)")
+                except Exception as e:
+                    log.warn(f"could not download webview.apk ({arch}): {e}")
+            if webview_path.exists():
+                os.utime(webview_path, (past_epoch, past_epoch))
+
+    # 2. SDK Stubs for apexer (prebuilts/sdk/current/public/android.jar)
+    android_jar = build_root / "prebuilts" / "sdk" / "current" / "public" / "android.jar"
+    sdk_dir = build_root / "prebuilts" / "sdk"
+    if sdk_dir.exists() or (build_root / "build").exists():
+        is_jar_valid = False
+        if android_jar.exists() and android_jar.stat().st_size > 50000:
             try:
-                with open(webview_arm64, "rb") as fh:
+                with open(android_jar, "rb") as fh:
                     if fh.read(2) == b"PK":
-                        is_valid = True
+                        is_jar_valid = True
             except Exception:
                 pass
-        if not is_valid:
-            log.log("fetching valid prebuilt chromium-webview arm64 binary...")
+        if not is_jar_valid:
+            log.log("fetching valid prebuilt android.jar SDK stub for apexer...")
             try:
                 import urllib.request, base64
-                url = "https://android.googlesource.com/platform/external/chromium-webview/+/refs/tags/android-10.0.0_r41/prebuilt/arm64/webview.apk?format=TEXT"
+                url = "https://android.googlesource.com/platform/prebuilts/sdk/+/refs/tags/android-10.0.0_r41/current/public/android.jar?format=TEXT"
                 req = urllib.request.Request(url, headers={"User-Agent": "ROMForge"})
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     raw = base64.b64decode(resp.read())
-                    webview_arm64.parent.mkdir(parents=True, exist_ok=True)
-                    webview_arm64.write_bytes(raw)
-                    log.ok(f"restored prebuilt chromium-webview ({len(raw) / 2**20:.1f} MB)")
+                    android_jar.parent.mkdir(parents=True, exist_ok=True)
+                    android_jar.write_bytes(raw)
+                    log.ok(f"restored prebuilt android.jar ({len(raw) / 2**20:.1f} MB)")
             except Exception as e:
-                log.warn(f"could not download webview.apk: {e}")
-        if webview_arm64.exists():
-            now = time.time() + 10
-            os.utime(webview_arm64, (now, now))
+                log.warn(f"could not download android.jar: {e}")
+        if android_jar.exists():
+            os.utime(android_jar, (past_epoch, past_epoch))
 
-    webview_arm = build_root / "external" / "chromium-webview" / "prebuilt" / "arm" / "webview.apk"
-    if (build_root / "external" / "chromium-webview").exists():
-        is_valid = False
-        if webview_arm.exists() and webview_arm.stat().st_size > 1000000:
-            try:
-                with open(webview_arm, "rb") as fh:
-                    if fh.read(2) == b"PK":
-                        is_valid = True
-            except Exception:
-                pass
-        if not is_valid:
-            log.log("fetching valid prebuilt chromium-webview arm binary...")
-            try:
-                import urllib.request, base64
-                url = "https://android.googlesource.com/platform/external/chromium-webview/+/refs/tags/android-10.0.0_r41/prebuilt/arm/webview.apk?format=TEXT"
-                req = urllib.request.Request(url, headers={"User-Agent": "ROMForge"})
-                with urllib.request.urlopen(req, timeout=60) as resp:
-                    raw = base64.b64decode(resp.read())
-                    webview_arm.parent.mkdir(parents=True, exist_ok=True)
-                    webview_arm.write_bytes(raw)
-                    log.ok(f"restored prebuilt chromium-webview arm ({len(raw) / 2**20:.1f} MB)")
-            except Exception as e:
-                log.warn(f"could not download webview.apk (arm): {e}")
-        if webview_arm.exists():
-            now = time.time() + 10
-            os.utime(webview_arm, (now, now))
+    # 3. Executable permissions on host binaries
+    for bin_dir in (build_root / "out" / "soong" / "host" / "linux-x86" / "bin",
+                    build_root / "out" / "host" / "linux-x86" / "bin",
+                    build_root / "prebuilts" / "sdk" / "tools" / "linux" / "bin"):
+        if bin_dir.exists():
+            for f in bin_dir.glob("*"):
+                if f.is_file():
+                    try:
+                        f.chmod(f.stat().st_mode | 0o755)
+                    except OSError:
+                        pass
 
-    # Purge any stale/broken webview intermediates in out/
+    # 4. Purge stale webview intermediates & dirty temporary dirs in out/
     out_dir = build_root / "out"
     if out_dir.exists():
         for p in out_dir.glob("target/product/*/obj/APPS/webview*"):
@@ -338,6 +355,10 @@ def ensure_prebuilts(build_root: Path) -> None:
             shutil.rmtree(p, ignore_errors=True)
         for p in out_dir.glob("target/product/*/system/product/app/webview*"):
             shutil.rmtree(p, ignore_errors=True)
+        # Purge temporary directory inside out/soong
+        soong_temp = out_dir / "soong" / ".temp"
+        if soong_temp.exists():
+            shutil.rmtree(soong_temp, ignore_errors=True)
 
 
 def apply_patches(plan: Plan, build_root: Path, forge_root: Path) -> List[str]:

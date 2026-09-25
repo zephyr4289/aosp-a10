@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -276,13 +277,11 @@ RECLAIM_LADDER = [
     ("symbols", "out/target/product/*/symbols", "unstripped copies; install "
      "rules re-run cheaply from obj/ on demand"),
     ("oat-dex", "out/target/product/*/obj/*/oat_x86*", "host-side test dex"),
-    ("super-img", "out/target/product/*/*.img.new", "intermediate super builds"),
 ]
 
 LADDER_PATTERNS = [
     "out/target/product/*/symbols",
     "out/target/product/*/obj/*/oat_x86*",
-    "out/target/product/*/*.img.new",
 ]
 
 
