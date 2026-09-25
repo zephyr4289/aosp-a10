@@ -46,7 +46,7 @@ on:
 
 concurrency:
   group: forge-${{ github.event.inputs.rom || 'qassa-a10' }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
