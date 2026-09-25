@@ -181,29 +181,32 @@ RECLAIM_PATHS = [
 
 
 def setup_compressed_volume() -> None:
-    """Setup a btrfs compressed volume on /mnt/romforge if supported.
+    """Setup a btrfs compressed volume on /mnt if supported.
 
     Transparent zstd compression gives 2.5x-3.5x space multiplication on-the-fly for
     AOSP object binaries, expanding a 64 GB runner SSD volume into 150+ GB usable disk.
     """
     if not os.path.exists("/mnt"):
         return
-    mount_pt = Path("/mnt/romforge")
-    mount_pt.mkdir(parents=True, exist_ok=True)
-    if os.path.ismount(str(mount_pt)):
+
+    st = _safe_run(["df", "-T", "/mnt"], capture_output=True, text=True)
+    if st and "btrfs" in st.stdout:
         return
 
     if shutil.which("mkfs.btrfs"):
-        loop_img = Path("/mnt/btrfs_vol.img")
-        if not loop_img.exists():
-            _safe_run(["sudo", "truncate", "-s", "150G", str(loop_img)])
-            _safe_run(["sudo", "mkfs.btrfs", "-f", "-m", "single", "-d", "single", str(loop_img)],
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        _safe_run(["sudo", "mount", "-o", "loop,compress=zstd:1,space_cache=v2,nodatacow", str(loop_img), str(mount_pt)],
-                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        _safe_run(["sudo", "chmod", "1777", str(mount_pt)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if os.path.ismount(str(mount_pt)):
-            log.log("setup transparent btrfs zstd:1 compressed volume on /mnt/romforge (150G effective budget)")
+        _safe_run(["sudo", "umount", "/mnt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for dev in ("/dev/sdb", "/dev/sdc"):
+            if os.path.exists(dev):
+                _safe_run(["sudo", "mkfs.btrfs", "-f", "-m", "single", "-d", "single", dev],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                _safe_run(["sudo", "mount", "-o", "compress=zstd:1,space_cache=v2,nodatacow", dev, "/mnt"],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                _safe_run(["sudo", "chmod", "1777", "/mnt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                st2 = _safe_run(["df", "-T", "/mnt"], capture_output=True, text=True)
+                if st2 and "btrfs" in st2.stdout:
+                    log.log(f"setup transparent btrfs zstd:1 compressed volume on /mnt via {dev}")
+                    return
+        _safe_run(["sudo", "mount", "-a"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def reclaim_disk() -> List[str]:
