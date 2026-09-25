@@ -162,17 +162,8 @@ def cmd_prepare(args, root: Path) -> int:
     except Exception:
         pass
     if os.path.exists("/mnt"):
-        opt_aosp = Path("/opt/romforge/aosp")
-        mnt_out_storage = Path("/mnt/romforge/out_storage")
-        fenv._safe_run(["sudo", "mkdir", "-p", str(opt_aosp), str(mnt_out_storage), str(build_root)])
-        fenv._safe_run(["sudo", "chmod", "1777", "/opt/romforge", str(opt_aosp), "/mnt/romforge", str(mnt_out_storage), str(build_root)])
-        if not os.path.ismount(str(build_root)):
-            fenv._safe_run(["sudo", "mount", "--bind", str(opt_aosp), str(build_root)])
-        out_dir = build_root / "out"
-        fenv._safe_run(["sudo", "mkdir", "-p", str(out_dir)])
-        fenv._safe_run(["sudo", "chmod", "1777", str(out_dir)])
-        if not os.path.ismount(str(out_dir)):
-            fenv._safe_run(["sudo", "mount", "--bind", str(mnt_out_storage), str(out_dir)])
+        fenv._safe_run(["sudo", "mkdir", "-p", "/mnt/romforge", str(build_root), str(build_root / "out")])
+        fenv._safe_run(["sudo", "chmod", "-R", "1777", "/mnt/romforge"])
     if plan:
         try:
             swap_path = str(Path(build_root).parent / ".forge-swap")
