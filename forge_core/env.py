@@ -294,13 +294,10 @@ def ncurses5_compat() -> None:
 RECLAIM_LADDER = [
     # (label, glob under BUILD_ROOT, why-it-is-safe)
     ("tmp", "**/.reclaim_tmp", "scratch"),
-    ("symbols", "out/target/product/*/symbols", "unstripped copies; install "
-     "rules re-run cheaply from obj/ on demand"),
     ("oat-dex", "out/target/product/*/obj/*/oat_x86*", "host-side test dex"),
 ]
 
 LADDER_PATTERNS = [
-    "out/target/product/*/symbols",
     "out/target/product/*/obj/*/oat_x86*",
 ]
 

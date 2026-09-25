@@ -35,13 +35,9 @@ class TestStressDisk(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_pre_bank_cleanup_drops_symbols_and_sources_under_pressure(self):
-        """When disk free space is simulated < 15 GB, pre_bank_cleanup must purge symbols and source files."""
+        """When disk free space is simulated < 15 GB, pre_bank_cleanup must drop non-out source files while preserving out/ state."""
         with patch("forge_core.env._df_free_gb", return_value=1.5):
             relay.pre_bank_cleanup(self.build_root)
-
-        # Symbols must be gone
-        sym_dir = self.build_root / "out" / "target" / "product" / "PL2" / "symbols"
-        self.assertFalse(sym_dir.exists())
 
         # out/ must still exist and be intact
         self.assertTrue((self.build_root / "out" / ".ninja_log").exists())
@@ -72,7 +68,7 @@ class TestStressDisk(unittest.TestCase):
 
     def test_reclaim_ladder_preserves_directory_structure_for_ninja_cp(self):
         """reclaim_ladder must delete files but preserve directory trees so ninja cp commands never fail."""
-        hw_dir = self.build_root / "out" / "target" / "product" / "PL2" / "symbols" / "vendor" / "bin" / "hw"
+        hw_dir = self.build_root / "out" / "target" / "product" / "PL2" / "obj" / "app" / "oat_x86" / "test_dir"
         hw_dir.mkdir(parents=True, exist_ok=True)
         target_file = hw_dir / "android.hardware.biometrics.fingerprint@2.1-service"
         target_file.write_bytes(b"x" * (1024 * 1024))

@@ -294,9 +294,9 @@ def test_e2e_plumbing(tmp: Path) -> None:
     check("state restored", relay.restore(br3, st, "state-k-s1")
           and (br3 / "out" / "target" / "x.bin").read_bytes() == b"payload"
           and (br3 / "out" / ".ninja_log").exists())
-    # relay exclusion keeps symbols out of the traveling state
-    check("relay excludes symbols fat",
-          not (br3 / "out" / "target" / "product" / "PL2" / "symbols").exists())
+    # relay retains symbols to prevent objcopy/strip ENOENT failures on resume
+    check("relay retains symbols for strip integrity",
+          (br3 / "out" / "target" / "product" / "PL2" / "symbols" / "lib.so").exists())
 
 
 def main() -> int:

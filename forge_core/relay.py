@@ -28,7 +28,6 @@ from . import env as fenv
 
 # cheap-to-regenerate fat that never travels in the relay
 STATE_EXCLUDES = [
-    "out/target/product/*/symbols",
     "out/target/product/*/obj/*/oat_x86*",
     "out/target/product/*/*.img.new",
     "out/soong/.temp-dir*",
@@ -44,8 +43,6 @@ class RelayError(Exception):
 
 def pre_bank_cleanup(build_root: Path) -> None:
     """Free disk space before packing out/ so split --filter never hits ENOSPC."""
-    for sym in (build_root / "out" / "target" / "product").glob("*/symbols"):
-        shutil.rmtree(sym, ignore_errors=True)
     for tmp in ("/tmp", "/var/tmp"):
         try:
             for child in Path(tmp).glob("*"):
