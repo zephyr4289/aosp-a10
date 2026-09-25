@@ -16,6 +16,7 @@ ROMForge's storage contract:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -35,6 +36,16 @@ def _safe_run(cmd: List[str], check: bool = False, **kwargs) -> Optional[subproc
 
 def _df_free_gb(path: str) -> float:
     try:
+        if os.path.exists(path):
+            res = _safe_run(["btrfs", "filesystem", "usage", "-b", path], capture_output=True, text=True)
+            if res and res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    if "Free (estimated)" in line:
+                        m = re.search(r"Free\s*\(estimated\):\s*([0-9.]+)\s*([KMGT]i?B)", line, re.IGNORECASE)
+                        if m:
+                            val, unit = float(m.group(1)), m.group(2).upper()
+                            mult = {"B": 1, "KB": 1024, "KIB": 1024, "MB": 1024**2, "MIB": 1024**2, "GB": 1024**3, "GIB": 1024**3, "TB": 1024**4, "TIB": 1024**4}
+                            return (val * mult.get(unit, 1024**3)) / (1024 ** 3)
         st = os.statvfs(path)
         return st.f_bavail * st.f_frsize / (1024 ** 3)
     except Exception:
