@@ -88,9 +88,10 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
         "set +eu; "
         f"source build/envsetup.sh >/dev/null 2>&1; "
         f"lunch {lunch_combo(plan)} >/dev/null 2>&1; "
-        f"exec {soong_ui} --make-mode {target}"
+        f"exec {soong_ui} --make-mode -j 4 {target}"
     )
     e = build_env(plan, build_root, use_ccache=use_ccache)
+    e["NINJA_ARGS"] = "-j 4"
     if allow_missing_deps:
         e["ALLOW_MISSING_DEPENDENCIES"] = "true"
 
@@ -143,25 +144,71 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                 stopped_by_watchdog.set()
                 _pg(signal.SIGINT)
 
-    # ---- progress thread ------------------------------------------------------
+    # ---- live 1-second terminal pulse thread ---------------------------------
     last: Dict[str, int] = {"pct": 0, "done": 0, "total": 0}
     notified = {"pct": -5}
 
-    def progress() -> None:
-        while not stop.wait(30):
+    def live_heartbeat() -> None:
+        last_log_pos = 0
+        latest_action = "compiling"
+        while not stop.wait(1.0):
+            # 1. Read latest active step from build_log
+            try:
+                if build_log.exists():
+                    with open(build_log, "r", encoding="utf-8", errors="replace") as f:
+                        f.seek(last_log_pos)
+                        new_lines = f.readlines()
+                        last_log_pos = f.tell()
+                        for line in new_lines:
+                            line_str = line.strip()
+                            if line_str.startswith("[") or "ninja:" in line_str or "target" in line_str or "FAILED" in line_str or "Copy:" in line_str or "Install:" in line_str:
+                                latest_action = line_str[:65]
+            except Exception:
+                pass
+
+            # 2. Extract ninja progress numbers
             nonlocal last
             last = relay.progress_from_log(build_log, last)
             pct = last.get("pct", 0)
+            done = last.get("done", 0)
+            total = last.get("total", 0)
+
+            # 3. Read live memory & swap stats
+            mem_str = "RAM: ?"
+            try:
+                with open("/proc/meminfo", "r") as mf:
+                    mem_data = mf.read()
+                    tot_kb = int(re.search(r"MemTotal:\s+(\d+)", mem_data).group(1))
+                    avail_kb = int(re.search(r"MemAvailable:\s+(\d+)", mem_data).group(1))
+                    sw_tot_kb = int(re.search(r"SwapTotal:\s+(\d+)", mem_data).group(1))
+                    sw_free_kb = int(re.search(r"SwapFree:\s+(\d+)", mem_data).group(1))
+                    used_gb = (tot_kb - avail_kb) / 1024 / 1024
+                    tot_gb = tot_kb / 1024 / 1024
+                    sw_used_gb = (sw_tot_kb - sw_free_kb) / 1024 / 1024
+                    sw_tot_gb = sw_tot_kb / 1024 / 1024
+                    mem_str = f"RAM: {used_gb:.1f}/{tot_gb:.1f}G (Swap: {sw_used_gb:.1f}/{sw_tot_gb:.1f}G)"
+            except Exception:
+                pass
+
+            free_disk = 0.0
+            try:
+                free_disk = fenv._df_free_gb(str(build_root))
+            except Exception:
+                pass
+
+            now_str = time.strftime("%H:%M:%S")
+            prog_label = f"[{pct}% {done}/{total}]" if total > 0 else "[building]"
+            print(f"[{now_str}] {prog_label} {latest_action} | {mem_str} | Disk: {free_disk:.1f}G free", flush=True)
+
             if pct - notified["pct"] >= 5:
                 notified["pct"] = pct
                 log.notice(
-                    f"PROGRESS:{pct}:{last.get('done', '?')}/{last.get('total', '?')}",
+                    f"PROGRESS:{pct}:{done}/{total}",
                     title="Build-Progress")
-                log.log(f"progress {pct}% ({last.get('done')}/{last.get('total')})")
 
     threads = [threading.Thread(target=budget_watchdog, daemon=True),
                threading.Thread(target=disk_watchdog, daemon=True),
-               threading.Thread(target=progress, daemon=True)]
+               threading.Thread(target=live_heartbeat, daemon=True)]
     for t in threads:
         t.start()
 

@@ -208,15 +208,34 @@ def reclaim_disk() -> List[str]:
     return removed
 
 
-def ensure_swap(swap_path: str, size_gb: int = 4) -> bool:
+def protect_runner_processes() -> None:
+    """Shield the GitHub Actions runner agent and build orchestrator from Linux OOM killer."""
+    _safe_run(["sudo", "sysctl", "-w", "vm.swappiness=60", "vm.vfs_cache_pressure=50"],
+              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Set oom_score_adj to -1000 for all Runner and python orchestrator processes
+    for proc_dir in Path("/proc").glob("[0-9]*"):
+        try:
+            cmdline = (proc_dir / "cmdline").read_bytes().decode("utf-8", errors="ignore")
+            if any(k in cmdline for k in ("Runner.", "actions-runner", "forge_core")):
+                adj = proc_dir / "oom_score_adj"
+                if adj.exists():
+                    _safe_run(["sudo", "sh", "-c", f"echo -1000 > {adj}"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+
+def ensure_swap(swap_path: str, size_gb: int = 10) -> bool:
     has = _safe_run(["swapon", "--show"], capture_output=True, text=True)
     if has and has.stdout.strip():
+        protect_runner_processes()
         return True
     try:
         free = _df_free_gb(os.path.dirname(swap_path))
         if free < size_gb + 20:
             log.log(f"only {free:.0f} GB free on {os.path.dirname(swap_path)} — "
                     f"skipping {size_gb}G swap to protect the disk budget")
+            protect_runner_processes()
             return False
     except Exception:
         pass
@@ -228,6 +247,7 @@ def ensure_swap(swap_path: str, size_gb: int = 4) -> bool:
     _safe_run(["sudo", "chmod", "600", swap_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     _safe_run(["sudo", "mkswap", swap_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     r = _safe_run(["sudo", "swapon", swap_path], capture_output=True, text=True)
+    protect_runner_processes()
     if r and r.returncode == 0:
         log.log(f"swap on: {size_gb} GB at {swap_path}")
         return True

@@ -18,6 +18,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -314,8 +315,11 @@ def unpack_from_store(store, tag: str, prefix: str, dest: Path,
 
     def feeder():
         try:
-            for name in part_names:
+            total_parts = len(part_names)
+            for idx, name in enumerate(part_names, 1):
                 part_path = tmp_dir / name
+                now_str = time.strftime("%H:%M:%S")
+                print(f"[{now_str}] [RESTORE] downloading & decompressing {prefix} part {idx}/{total_parts}: {name} ...", flush=True)
                 store.download_file(tag, name, part_path)
                 if name in expected_sums:
                     got_h = _hash_file(part_path)
@@ -327,6 +331,7 @@ def unpack_from_store(store, tag: str, prefix: str, dest: Path,
                 with open(part_path, "rb") as fh:
                     shutil.copyfileobj(fh, dec.stdin, length=16 * 1024 * 1024)
                 part_path.unlink(missing_ok=True)
+                print(f"[{time.strftime('%H:%M:%S')}] [RESTORE] unpacked part {idx}/{total_parts} into destination", flush=True)
         except Exception as e:
             feeder_error.append(str(e))
         finally:
