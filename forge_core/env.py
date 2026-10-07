@@ -26,10 +26,10 @@ from typing import Dict, List, Optional
 from . import log
 
 
-def _safe_run(cmd: List[str], check: bool = False, **kwargs) -> Optional[subprocess.CompletedProcess]:
+def _safe_run(cmd: List[str], check: bool = False, timeout: int = 120, **kwargs) -> Optional[subprocess.CompletedProcess]:
     try:
-        return subprocess.run(cmd, check=check, **kwargs)
-    except (OSError, FileNotFoundError, Exception):
+        return subprocess.run(cmd, check=check, timeout=timeout, **kwargs)
+    except (OSError, FileNotFoundError, subprocess.TimeoutExpired, Exception):
         return None
 
 
@@ -108,7 +108,7 @@ def detect() -> RunnerEnv:
     env = RunnerEnv()
     env.cores = os.cpu_count() or 2
     try:
-        with open("/proc/meminfo", encoding="ascii") as fh:
+        with open("/proc/meminfo", encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if line.startswith("MemTotal:"):
                     env.mem_gb = int(line.split()[1]) / (1024 ** 2)
@@ -122,7 +122,7 @@ def detect() -> RunnerEnv:
 
     seen = {}
     try:
-        with open("/proc/mounts", encoding="ascii") as fh:
+        with open("/proc/mounts", encoding="utf-8", errors="replace") as fh:
             for raw in fh:
                 parts = raw.split()
                 if len(parts) < 3:
@@ -156,7 +156,6 @@ RECLAIM_PATHS = [
     "/usr/local/graalvm",
     "/usr/local/.ghcup",
     "/usr/share/swift",
-    "/opt/hostedtoolcache",
     "/opt/microsoft",
     "/usr/share/miniconda",
     "/usr/local/lib/node_modules",
@@ -191,6 +190,16 @@ def reclaim_disk() -> List[str]:
         if Path(p).exists():
             _safe_run(["sudo", "rm", "-rf", p], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             removed.append(p)
+    # Prune non-Python hostedtoolcache toolchains (e.g. CodeQL, Java, go, Ruby, node)
+    # Never delete the running Python environment (/opt/hostedtoolcache/Python)
+    if os.path.exists("/opt/hostedtoolcache"):
+        try:
+            for child in Path("/opt/hostedtoolcache").iterdir():
+                if child.name != "Python":
+                    _safe_run(["sudo", "rm", "-rf", str(child)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    removed.append(str(child))
+        except Exception:
+            pass
     for cmd in (["sudo", "docker", "system", "prune", "-af"],
                 ["sudo", "apt-get", "clean"]):
         _safe_run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -275,17 +284,49 @@ def ensure_swap(swap_path: str, size_gb: int = 8) -> bool:
     return False
 
 
+def activate_swap_chunk(chunk_path: str, chunk_size_gb: int = 2) -> bool:
+    """Dynamically allocate and activate an incremental swap chunk on-demand."""
+    try:
+        free = _df_free_gb(os.path.dirname(chunk_path))
+        if free < chunk_size_gb + 12:
+            return False
+        _safe_run(["sudo", "fallocate", "-l", f"{chunk_size_gb}G", chunk_path],
+                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if not os.path.exists(chunk_path) or os.path.getsize(chunk_path) < (chunk_size_gb * 1024 * 1024 * 1024):
+            _safe_run(["sudo", "dd", "if=/dev/zero", f"of={chunk_path}", "bs=1M", f"count={chunk_size_gb * 1024}", "status=none"],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _safe_run(["sudo", "chmod", "600", chunk_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _safe_run(["sudo", "mkswap", chunk_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        r = _safe_run(["sudo", "swapon", "-p", "10", chunk_path], capture_output=True, text=True)
+        protect_runner_processes()
+        return bool(r and r.returncode == 0)
+    except Exception:
+        return False
+
+
+def deactivate_swap_chunks(swap_chunks: List[Path]) -> None:
+    """Deactivate and delete dynamic swap chunks to immediately reclaim disk space."""
+    for chunk in swap_chunks:
+        try:
+            _safe_run(["sudo", "swapoff", str(chunk)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if chunk.exists():
+                _safe_run(["sudo", "rm", "-f", str(chunk)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+
 def install_pkgs(pkgs: List[str]) -> None:
     """Version-profile-driven apt install (JDK etc. come from versions.yaml)."""
     if not pkgs:
         return
+    apt_env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
     if shutil.which("add-apt-repository"):
         _safe_run(["sudo", "add-apt-repository", "-y", "universe"],
-                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                  env=apt_env, timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     _safe_run(["sudo", "apt-get", "update", "-qq"],
-              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              env=apt_env, timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     r = _safe_run(["sudo", "apt-get", "install", "-y", "-qq", *pkgs],
-                  capture_output=True, text=True)
+                  env=apt_env, timeout=120, capture_output=True, text=True)
     if r and r.returncode != 0:
         log.warn(f"apt install had issues (continuing): {r.stderr.strip()[:200]}")
 

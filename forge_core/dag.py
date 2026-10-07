@@ -73,7 +73,7 @@ def finalize_classification(classification: str, rom_zip: Optional[object],
     return {"classification": classification, "reason": stop_reason}
 
 
-def mining_matrix(mining: bool = True, candidates: int = 12,
+def mining_matrix(mining: bool = True, candidates: int = 20,
                   cap: int = 24) -> List[str]:
     """Matrix fan-out list for slot jobs. 1 row when mining is off."""
     if not mining:

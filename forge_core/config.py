@@ -102,8 +102,8 @@ def load_rom(path: Path) -> RomProfile:
         manifest_branch=_require(data, "manifest_branch", ctx),
         lunch=_require(data, "lunch", ctx),
     )
-    if not (10 <= rom.android_version <= 16):
-        raise ConfigError(f"{ctx}: android_version {rom.android_version} outside A10..A16")
+    if not (10 <= rom.android_version <= 17):
+        raise ConfigError(f"{ctx}: android_version {rom.android_version} outside A10..A17")
     device_from_lunch = rom.lunch.split("_")[1] if "_" in rom.lunch else ""
     rom.device = data.get("device", device_from_lunch)
     rom.build_target = data.get("build_target", "bacon")
@@ -169,8 +169,8 @@ def load_versions(path: Path) -> Dict[int, Dict[str, Any]]:
             v = int(str(ver).lstrip("aA"))
         except ValueError as e:
             raise ConfigError(f"{path}: bad version key {ver!r}") from e
-        if not (10 <= v <= 16):
-            raise ConfigError(f"{path}: version {v} outside A10..A16 envelope")
+        if not (10 <= v <= 17):
+            raise ConfigError(f"{path}: version {v} outside A10..A17 envelope")
         out[v] = dict(prof or {})
     return out
 

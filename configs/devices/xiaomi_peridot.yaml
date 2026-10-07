@@ -1,0 +1,51 @@
+# =============================================================================
+#  POCO F6 / Redmi Turbo 3 (peridot) — Snapdragon 8s Gen 3 (SM8635)
+#  Safety Profile for the 14-Point Anti-Brick Gate.
+# =============================================================================
+name: xiaomi_peridot
+codenames: [peridot, 24069PC21G, 24069PC21I]
+
+soc: SM8635
+arch: arm64
+kernel_version: "6.1"
+ab_update: true                   # Virtual A/B (V-A/B)
+dynamic_partitions: true          # Dynamic partitions inside super.img
+
+boot_header_version: 4            # GKI kernel 6.1 era
+dtbo_required: true
+
+# --- AVB posture -------------------------------------------------------------
+avb:
+  enabled: false                  # custom-ROM/unlocked-BL posture
+  verity_disabled: true
+
+# --- partition size budgets ---------------------------------------------------
+budgets_authority: tree
+partition_budgets:
+  super:
+    size_bytes: 9663676416        # 9.0 GiB (standard Xiaomi SM8635 super partition)
+    source: "device tree BoardConfig"
+  boot:
+    size_bytes: 201326592         # 192 MiB
+    source: "device tree BoardConfig"
+  vendor_boot:
+    size_bytes: 201326592         # 192 MiB
+    source: "device tree BoardConfig"
+  dtbo:
+    size_bytes: 33554432          # 32 MiB
+    source: "device tree BoardConfig"
+
+# --- anti-crossflash tokens ---------------------------------------------------
+anti_crossflash:
+  ro_product_device: [peridot]
+  fingerprint_tokens: [peridot, POCO/peridot]
+  fastboot_product: [peridot]
+
+# --- security patch window ----------------------------------------------------
+spl_window:
+  min: "2024-05-01"
+  max: "2027-12-31"
+
+# --- Treble / VNDK ------------------------------------------------------------
+vndk:
+  required: false

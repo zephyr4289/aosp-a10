@@ -86,7 +86,7 @@ def _run_pack_pipeline(root: Path, member: str, excludes: List[str],
 
 
 def _write_sums(staging: Path, parts: List[Path]) -> None:
-    with open(staging / "SHA256SUMS", "w", encoding="ascii") as fh:
+    with open(staging / "SHA256SUMS", "w", encoding="utf-8") as fh:
         for p in parts:
             fh.write(f"{_hash_file(p)}  {p.name}\n")
 
@@ -134,7 +134,7 @@ def stream_pack(root: Path, member: str, prefix: str,
                            "use stage mode")
     excludes = excludes or []
     sums_out.parent.mkdir(parents=True, exist_ok=True)
-    sums_out.write_text("", encoding="ascii")
+    sums_out.write_text("", encoding="utf-8")
 
     # filter: capture stdin into $FILE, record sha, hand to sink (retries).
     # NOTE: split --filter gives the chunk on STDIN — the filter must WRITE
@@ -287,7 +287,7 @@ def unpack_from_store(store, tag: str, prefix: str, dest: Path,
     try:
         store.download_file(tag, "SHA256SUMS", sums_file)
         if sums_file.exists():
-            for line in sums_file.read_text(encoding="ascii", errors="ignore").splitlines():
+            for line in sums_file.read_text(encoding="utf-8", errors="ignore").splitlines():
                 if not line.strip():
                     continue
                 tokens = line.split()

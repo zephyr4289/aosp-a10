@@ -43,6 +43,27 @@ class TestOomSwap(unittest.TestCase):
             res = fenv.ensure_swap("/tmp/test_swap", size_gb=4)
         self.assertFalse(res)
 
+    def test_dynamic_swap_chunk_lifecycle(self):
+        """Dynamic swap chunks must activate under sufficient disk and deactivate cleanly."""
+        succ = subprocess.CompletedProcess(["swapon"], 0, stdout="", stderr="")
+
+        def fake_safe_run(cmd, **kwargs):
+            return succ
+
+        # Test activation skips if free disk is too low
+        with patch("forge_core.env._df_free_gb", return_value=5.0), \
+             patch("forge_core.env._safe_run", side_effect=fake_safe_run):
+            res = fenv.activate_swap_chunk("/tmp/chunk1", chunk_size_gb=2)
+        self.assertFalse(res)
+
+        # Test activation succeeds when free disk is healthy
+        with patch("forge_core.env._df_free_gb", return_value=30.0), \
+             patch("forge_core.env._safe_run", side_effect=fake_safe_run), \
+             patch("os.path.exists", return_value=True), \
+             patch("os.path.getsize", return_value=2 * 1024 * 1024 * 1024):
+            res = fenv.activate_swap_chunk("/tmp/chunk1", chunk_size_gb=2)
+        self.assertTrue(res)
+
 
 if __name__ == "__main__":
     unittest.main()

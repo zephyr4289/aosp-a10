@@ -284,8 +284,46 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                     f"PROGRESS:{pct}:{done}/{total}",
                     title="Build-Progress")
 
+    # ---- dynamic adaptive swap watchdog (OOM immunity on surge) -------------
+    dynamic_swap_chunks: List[Path] = []
+
+    def dynamic_swap_watchdog() -> None:
+        while not stop.wait(3.0):
+            try:
+                with open("/proc/meminfo", "r") as mf:
+                    mem_data = mf.read()
+                    sw_tot_m = re.search(r"SwapTotal:\s+(\d+)", mem_data)
+                    sw_free_m = re.search(r"SwapFree:\s+(\d+)", mem_data)
+                    tot_m = re.search(r"MemTotal:\s+(\d+)", mem_data)
+                    avail_m = re.search(r"MemAvailable:\s+(\d+)", mem_data)
+                    if not (sw_tot_m and sw_free_m and tot_m and avail_m):
+                        continue
+                    sw_tot_kb = int(sw_tot_m.group(1))
+                    sw_free_kb = int(sw_free_m.group(1))
+                    tot_kb = int(tot_m.group(1))
+                    avail_kb = int(avail_m.group(1))
+
+                    sw_used_kb = sw_tot_kb - sw_free_kb
+                    sw_used_pct = (sw_used_kb / sw_tot_kb * 100.0) if sw_tot_kb > 0 else 0.0
+                    ram_used_pct = ((tot_kb - avail_kb) / tot_kb * 100.0) if tot_kb > 0 else 0.0
+
+                    if (sw_used_pct > 70.0 or (ram_used_pct > 80.0 and sw_used_pct > 40.0)):
+                        if len(dynamic_swap_chunks) < 6:
+                            snap = storage.snapshot(build_root)
+                            if snap.physical_free_gb > 12.0:
+                                idx = len(dynamic_swap_chunks) + 1
+                                chunk_path = storage.backing_dir() / f".forge-swap.chunk.{idx}"
+                                if fenv.activate_swap_chunk(str(chunk_path), chunk_size_gb=2):
+                                    dynamic_swap_chunks.append(chunk_path)
+                                    log.ok(f"dynamic swap auto-scale: +2 GB chunk {idx} activated "
+                                           f"(RAM {ram_used_pct:.0f}%, Swap {sw_used_pct:.0f}%, "
+                                           f"Disk {snap.physical_free_gb:.1f}G free)")
+            except Exception:
+                pass
+
     threads = [threading.Thread(target=budget_watchdog, daemon=True),
                threading.Thread(target=disk_watchdog, daemon=True),
+               threading.Thread(target=dynamic_swap_watchdog, daemon=True),
                threading.Thread(target=live_heartbeat, daemon=True)]
     for t in threads:
         t.start()
@@ -294,6 +332,7 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
     stop.set()
     for t in threads:
         t.join(timeout=5)
+    fenv.deactivate_swap_chunks(dynamic_swap_chunks)
     elapsed = time.time() - t0
 
     # ---- classify -------------------------------------------------------------

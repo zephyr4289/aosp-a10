@@ -45,6 +45,8 @@ DEFAULT_PARTITIONS = {
          "productimage", "system_extimage"],
     16: ["bootimage", "vendor_boot", "dtboimage", "vendorimage",
          "productimage", "system_extimage"],
+    17: ["bootimage", "vendor_boot", "dtboimage", "vendorimage",
+         "productimage", "system_extimage"],
 }
 
 # targets that should never run in turbo (system/framework = critical path

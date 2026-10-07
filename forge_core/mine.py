@@ -44,7 +44,7 @@ CPU_TABLE: List[Tuple[str, int, str]] = [
     (r"EPYC\s+9V4[45]", 100, "Zen5 Turin (4.3-4.6 GHz)"),
     (r"EPYC\s+9V5[0-9]", 100, "Zen5 Turin"),
     (r"(?:Xeon\(R\)?\s+)?(?:Gold|Platinum)?\s*6980P|6973P|6972P|6971P",
-     95, "Xeon Granite Rapids (4.0-4.2 GHz)"),
+     80, "Xeon Granite Rapids (4.0-4.2 GHz)"),
     (r"EPYC\s+9V74", 85, "Zen4c Genoa-X (3.7 GHz)"),
     (r"EPYC\s+9[34567][56]4|EPYC\s+9\d{3}\b", 80, "Zen4 Genoa (3.5-3.7 GHz)"),
     (r"EPYC\s+7[2-9]\d{2}|EPYC\s+7[BR]1\d", 40, "Zen2/Zen3 Rome/Milan"),
@@ -52,7 +52,7 @@ CPU_TABLE: List[Tuple[str, int, str]] = [
     (r"Xeon\(R\)\s+Gold\s*[56]\d{3}", 32, "Xeon Cascade Lake"),
     (r"Xeon\(R\)\s+E5-2\d{3}", 15, "Xeon Broadwell/Haswell"),
 ]
-DEFAULT_MIN_SCORE = 90          # the ">= 4.0 GHz class" per the handoff
+DEFAULT_MIN_SCORE = 100         # Zen5 Turin class only (AMD EPYC 9V44/9V45)
 DEFAULT_WAIT_S = 240
 POLL_INTERVAL_S = 10
 
@@ -67,7 +67,7 @@ def probe(cpuinfo_path: str = "/proc/cpuinfo") -> Dict[str, object]:
     """Parse the local CPU into a score. Pure w.r.t. the filesystem."""
     model, flags, mhz, cores = "", [], 0.0, 0
     try:
-        with open(cpuinfo_path, encoding="ascii", errors="replace") as fh:
+        with open(cpuinfo_path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if line.startswith("model name") and not model:
                     model = line.split(":", 1)[1].strip()

@@ -386,10 +386,10 @@ def validate_lunch(plan: Plan, build_root: Path) -> None:
     # the real lunch resolution happens inside the build env; here we do the
     # cheap structural checks the upstream harness proved sufficient
     lunch_parts = plan.rom.lunch.split("-")
-    if len(lunch_parts) != 2:
+    if len(lunch_parts) not in (2, 3):
         raise SyncError(f"bad lunch combo: {plan.rom.lunch}")
-    product, variant = lunch_parts
-    dev = plan.rom.lunch.split("_")[1] if "_" in plan.rom.lunch else ""
+    product = lunch_parts[0]
+    dev = plan.rom.lunch.split("_")[1].split("-")[0] if "_" in plan.rom.lunch else ""
     for r in plan.rom.device_repos:
         if r["path"].startswith("device/") and dev and dev in r["path"]:
             # product mk must exist in the declared device repo path

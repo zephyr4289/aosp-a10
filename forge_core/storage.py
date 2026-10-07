@@ -110,7 +110,7 @@ def _proc_mounts() -> Dict[str, str]:
     """target -> fstype for real filesystems (from /proc/mounts)."""
     out: Dict[str, str] = {}
     try:
-        with open("/proc/mounts", encoding="ascii", errors="replace") as fh:
+        with open("/proc/mounts", encoding="utf-8", errors="replace") as fh:
             for raw in fh:
                 parts = raw.split()
                 if len(parts) >= 3:

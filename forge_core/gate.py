@@ -433,7 +433,7 @@ class Gate:
 
     def _sdk_from_version(self) -> Optional[int]:
         return {"10": 29, "11": 30, "12": 31, "13": 33, "14": 34,
-                "15": 35, "16": 36}.get(str(self.rom.android_version))
+                "15": 35, "16": 36, "17": 37}.get(str(self.rom.android_version))
 
     def check_10_selinux(self) -> None:
         plat = self.pdir / "system" / "etc" / "selinux" / \

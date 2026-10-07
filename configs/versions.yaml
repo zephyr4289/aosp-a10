@@ -162,3 +162,25 @@
     android-16 trees are the largest; the turbo fan-out + slice chain still
     converge, but plan for an overnight campaign and read TECHNICAL.md §6
     before promising wall-clock numbers to users.
+
+"17":
+  runner: ubuntu-24.04
+  apt_packages:
+    - git
+    - git-lfs
+    - ccache
+    - zstd
+    - curl
+    - rsync
+    - zip
+    - unzip
+    - build-essential
+    - python-is-python3
+  env: { LC_ALL: "C" }
+  swap_gb: 8
+  sync_jobs: 8
+  expected_source_gb: 75
+  cold_hours_4vcpu: 32
+  slices_default: 8
+  note: >-
+    android-17 trees targeted for Zen5 Turin mining on GitHub Actions.

@@ -45,6 +45,27 @@ class TestStoreFaults(unittest.TestCase):
             self.assertEqual(len(files), 1)
             self.assertEqual(call_count, 3)
 
+    def test_transient_create_failure_retry_recovery(self):
+        """Simulated transient release create failure on first 2 attempts must succeed on 3rd attempt."""
+        rel_store = store.ReleaseStore(repo="test/repo")
+        call_count = 0
+
+        def mock_gh(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            res = MagicMock()
+            if call_count < 3:
+                res.returncode = 1
+                res.stderr = "HTTP 500 Internal Server Error"
+            else:
+                res.returncode = 0
+                res.stdout = ""
+            return res
+
+        with patch.object(rel_store, "_gh", side_effect=mock_gh), patch("time.sleep", return_value=None):
+            rel_store.create("tag-src-1", "title", "notes")
+            self.assertEqual(call_count, 3)
+
     def test_checksum_mismatch_detection(self):
         """Corrupted part hash must be detected by verify()."""
         parts_dir = self.tmp / "corrupt_parts"
