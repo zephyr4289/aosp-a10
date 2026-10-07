@@ -26,10 +26,10 @@ from typing import Dict, List, Optional
 from . import log
 
 
-def _safe_run(cmd: List[str], check: bool = False, **kwargs) -> Optional[subprocess.CompletedProcess]:
+def _safe_run(cmd: List[str], check: bool = False, timeout: int = 120, **kwargs) -> Optional[subprocess.CompletedProcess]:
     try:
-        return subprocess.run(cmd, check=check, **kwargs)
-    except (OSError, FileNotFoundError, Exception):
+        return subprocess.run(cmd, check=check, timeout=timeout, **kwargs)
+    except (OSError, FileNotFoundError, subprocess.TimeoutExpired, Exception):
         return None
 
 
@@ -319,13 +319,14 @@ def install_pkgs(pkgs: List[str]) -> None:
     """Version-profile-driven apt install (JDK etc. come from versions.yaml)."""
     if not pkgs:
         return
+    apt_env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
     if shutil.which("add-apt-repository"):
         _safe_run(["sudo", "add-apt-repository", "-y", "universe"],
-                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                  env=apt_env, timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     _safe_run(["sudo", "apt-get", "update", "-qq"],
-              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              env=apt_env, timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     r = _safe_run(["sudo", "apt-get", "install", "-y", "-qq", *pkgs],
-                  capture_output=True, text=True)
+                  env=apt_env, timeout=120, capture_output=True, text=True)
     if r and r.returncode != 0:
         log.warn(f"apt install had issues (continuing): {r.stderr.strip()[:200]}")
 

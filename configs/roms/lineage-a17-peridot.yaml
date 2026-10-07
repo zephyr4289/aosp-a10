@@ -8,7 +8,7 @@ device: xiaomi_peridot            # -> configs/devices/ lookup key
 manifest_url: https://github.com/LineageOS/android
 manifest_branch: lineage-23.2
 
-lunch: lineage_peridot-userdebug
+lunch: lineage_peridot-trunk_staging-userdebug
 build_target: bacon
 rom_zip_glob: "lineage-*.zip"
 
@@ -25,8 +25,10 @@ device_repos:
     branch: lineage-23.2
 
 env:
+  TARGET_RELEASE: "trunk_staging"
   WITH_DEXPREOPT: "false"         # massive time + disk saver
   DONT_INSTALL_DEX_DEBUG_INFO: "true"
+  ALLOW_MISSING_DEPENDENCIES: "true"
 
 slices: 8                         # A17 on Zen 5 Turin 4 vCPU: chained relay slots
 slice_build_seconds: 16500
