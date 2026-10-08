@@ -377,12 +377,17 @@ def classify_exit(rc: int, watchdog_fired: bool, stop_reason: str,
 def find_rom_zip(plan, build_root: Path) -> Optional[Path]:
     """Largest non-fastboot zip in the product dir (upstream heuristic,
     now config-driven via rom.rom_zip_glob for exclusion)."""
-    dev = plan.rom.lunch.split("_")[1]
+    dev = plan.rom.device or (plan.rom.lunch.split("_")[1].split("-")[0] if "_" in plan.rom.lunch else plan.rom.lunch.split("-")[0])
     rom_dir = build_root / "out" / "target" / "product" / dev
     best: Optional[Path] = None
-    if not rom_dir.exists():
-        return None
-    for z in rom_dir.glob("*.zip"):
+    candidates = []
+    if rom_dir.exists():
+        candidates.extend(rom_dir.glob("*.zip"))
+    else:
+        prod_root = build_root / "out" / "target" / "product"
+        if prod_root.exists():
+            candidates.extend(prod_root.glob("*/*.zip"))
+    for z in candidates:
         if FASTBOOT_ZIP_PAT.search(z.name):
             continue
         if best is None or z.stat().st_size > best.stat().st_size:

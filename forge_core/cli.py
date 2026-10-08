@@ -462,7 +462,7 @@ def cmd_slice(args, root: Path) -> int:
 
 def _ensure_out(plan, store, build_root: Path) -> None:
     """verify/publish run on fresh runners: restore the banked final out/."""
-    dev = plan.rom.lunch.split("_")[1]
+    dev = plan.rom.device or (plan.rom.lunch.split("_")[1].split("-")[0] if "_" in plan.rom.lunch else plan.rom.lunch.split("-")[0])
     if (build_root / "out" / "target" / "product" / dev).exists():
         return
     t = store.target(plan.rom.key)
@@ -482,7 +482,7 @@ def cmd_verify(args, root: Path) -> int:
     vol = _ensure_volume(args)
     build_root = Path(vol.build_root) if vol.build_root else _build_root(args)
     _ensure_out(plan, store, build_root)
-    dev = plan.rom.lunch.split("_")[1]
+    dev = plan.rom.device or (plan.rom.lunch.split("_")[1].split("-")[0] if "_" in plan.rom.lunch else plan.rom.lunch.split("-")[0])
     pdir = build_root / "out" / "target" / "product" / dev
     rom_zip = Path(args.rom_zip) if args.rom_zip else \
         engine.find_rom_zip(plan, build_root)
@@ -520,7 +520,7 @@ def cmd_publish(args, root: Path) -> int:
     if not rom_zip or not rom_zip.exists():
         log.die("rom zip missing")
 
-    dev = plan.rom.lunch.split("_")[1]
+    dev = plan.rom.device or (plan.rom.lunch.split("_")[1].split("-")[0] if "_" in plan.rom.lunch else plan.rom.lunch.split("-")[0])
     pdir = build_root / "out" / "target" / "product" / dev
     tag = f"rom-{plan.rom.key}"
     store.create(tag, f"{plan.rom.name} · {plan.device.name}",

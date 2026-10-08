@@ -52,7 +52,8 @@ class RomProfile:
     key: str = ""
 
     def compute_key(self) -> None:
-        device = self.device or self.lunch.split("_")[1]
+        dev_lunch = self.lunch.split("_")[1].split("-")[0] if "_" in self.lunch else self.lunch.split("-")[0]
+        device = self.device or dev_lunch
         base = f"{self.name}-{device}-a{self.android_version}"
         self.key = "".join(c.lower() if c.isalnum() else
                             ("-" if c in " ." else "") for c in base)
@@ -104,7 +105,7 @@ def load_rom(path: Path) -> RomProfile:
     )
     if not (10 <= rom.android_version <= 17):
         raise ConfigError(f"{ctx}: android_version {rom.android_version} outside A10..A17")
-    device_from_lunch = rom.lunch.split("_")[1] if "_" in rom.lunch else ""
+    device_from_lunch = rom.lunch.split("_")[1].split("-")[0] if "_" in rom.lunch else rom.lunch.split("-")[0]
     rom.device = data.get("device", device_from_lunch)
     rom.build_target = data.get("build_target", "bacon")
     rom.rom_zip_glob = data.get("rom_zip_glob", "*.zip")
