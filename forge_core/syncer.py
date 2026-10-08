@@ -253,6 +253,9 @@ def _du(p: Path) -> int:
                 total += f.stat().st_size
         except OSError:
             pass
+    return total
+
+
 def ensure_device_repos(plan, build_root: Path) -> None:
     """Ensure device_repos match the active plan configuration."""
     for r in plan.rom.device_repos:
