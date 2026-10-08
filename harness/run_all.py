@@ -13,7 +13,7 @@ sys.path.insert(0, str(root))
 
 def main():
     print("=" * 70)
-    print("  ROMForge 13-Engine Extreme Edge-Case Harness (A through M)")
+    print("  ROMForge 14-Engine Extreme Edge-Case Harness (A through N)")
     print("=" * 70)
 
     loader = unittest.TestLoader()
@@ -29,7 +29,7 @@ def main():
     print(f"Tests run: {result.testsRun} | Failures: {len(result.failures)} | Errors: {len(result.errors)}")
 
     if result.wasSuccessful():
-        print("\033[92mALL 12 HARNESS ENGINES PASSED GREEN!\033[0m")
+        print("\033[92mALL 14 HARNESS ENGINES PASSED GREEN!\033[0m")
         return 0
     else:
         print("\033[91mHARNESS FAILED — FIX REGRESSIONS BEFORE COMMITTING\033[0m")

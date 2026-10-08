@@ -122,6 +122,7 @@ def gate(store, tag: str, key: str = "", min_score: int = DEFAULT_MIN_SCORE,
          wait_s: int = DEFAULT_WAIT_S,
          poll_s: int = POLL_INTERVAL_S,
          strict: bool = False,
+         is_fleet: bool = False,
          sleep_fn=time.sleep, clock_fn=time.time) -> Dict[str, str]:
     """Decide this candidate's role. Returns {role, score, model, reason}.
 
@@ -135,6 +136,12 @@ def gate(store, tag: str, key: str = "", min_score: int = DEFAULT_MIN_SCORE,
     """
     if strict or os.environ.get("FORGE_STRICT_MINING") in ("1", "true", "True"):
         strict = True
+    if not is_fleet and (
+        os.environ.get("FORGE_FLEET_RUNNER") in ("1", "true", "True")
+        or os.environ.get("RUNNER_ENVIRONMENT") == "self-hosted"
+        or os.environ.get("RUNNER_NAME", "").startswith("romforge")
+    ):
+        is_fleet = True
 
     # 0. done short-circuit: when the campaign is finished every candidate
     #    must exit in seconds, without touching the lock.
@@ -151,6 +158,20 @@ def gate(store, tag: str, key: str = "", min_score: int = DEFAULT_MIN_SCORE,
     meta = {"model": info["model"], "score": info["score"],
             "runner": os.environ.get("RUNNER_NAME", "local"),
             "ts": int(clock_fn())}
+
+    # 0.5. fleet runner fast-path: dedicated self-hosted fleet node claims immediately
+    if is_fleet:
+        info["score"] = 100
+        meta["score"] = 100
+        meta["fleet"] = True
+        if claim(store, tag, meta):
+            log.ok(f"mining: self-hosted fleet runner claimed the slot ({info['model']}, score 100)")
+            return {"role": "builder", "score": "100",
+                    "model": str(info["model"]),
+                    "reason": "self-hosted fleet runner (zero lottery)"}
+        return {"role": "discarded", "score": "100",
+                "model": str(info["model"]),
+                "reason": "fleet runner peer already claimed"}
 
     # 1. target silicon: claim immediately
     if int(info["score"]) >= min_score:
@@ -235,6 +256,8 @@ def _main(argv: Optional[List[str]] = None) -> int:
     p_gate.add_argument("--wait-s", type=int, default=DEFAULT_WAIT_S)
     p_gate.add_argument("--strict", action="store_true", default=False,
                         help="Reject fallback and abort if target silicon is not mined")
+    p_gate.add_argument("--fleet", action="store_true", default=False,
+                        help="Fast-path claim for dedicated self-hosted fleet runner")
     p_gate.add_argument("--fs-root", default=None)
     p_gate.add_argument("--repo", default=None)
 
@@ -258,7 +281,7 @@ def _main(argv: Optional[List[str]] = None) -> int:
 
     # gate
     res = gate(store, args.tag, key=args.key, min_score=args.min_score,
-               wait_s=args.wait_s, strict=args.strict)
+               wait_s=args.wait_s, strict=args.strict, is_fleet=args.fleet)
     log.out("role", res["role"])
     log.out("score", res["score"])
     log.out("model", res["model"])

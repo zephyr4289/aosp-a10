@@ -226,7 +226,8 @@ def verify(parts_dir: Path, prefix: str) -> bool:
     return True
 
 
-def unpack(parts_dir: Path, prefix: str, dest: Path, strip: bool = False) -> None:
+def unpack(parts_dir: Path, prefix: str, dest: Path, strip: bool = False,
+           extra_tar_args: Optional[List[str]] = None) -> None:
     """Verify then stream-decompress parts into dest with instant part reclamation."""
     if not verify(parts_dir, prefix):
         raise ChunkerError(
@@ -271,6 +272,8 @@ def unpack(parts_dir: Path, prefix: str, dest: Path, strip: bool = False) -> Non
     tar_cmd = ["tar", "-C", str(dest)]
     if strip:
         tar_cmd += ["--strip-components=1"]
+    if extra_tar_args:
+        tar_cmd += list(extra_tar_args)
     tar_cmd += ["-xf", "-"]
     tar_res = subprocess.run(tar_cmd, stdin=dec.stdout, capture_output=True)
     rc = tar_res.returncode
@@ -284,7 +287,8 @@ def unpack(parts_dir: Path, prefix: str, dest: Path, strip: bool = False) -> Non
 
 def unpack_from_store(store, tag: str, prefix: str, dest: Path,
                       strip: bool = False, tmp_dir: Optional[Path] = None,
-                      prefetch: int = 2) -> None:
+                      prefetch: int = 2,
+                      extra_tar_args: Optional[List[str]] = None) -> None:
     """Stream-download and unpack parts directly from store to dest.
 
     Prefetches up to `prefetch` parts concurrently in the background, overlapping
@@ -385,6 +389,8 @@ def unpack_from_store(store, tag: str, prefix: str, dest: Path,
     tar_cmd = ["tar", "-C", str(dest)]
     if strip:
         tar_cmd += ["--strip-components=1"]
+    if extra_tar_args:
+        tar_cmd += list(extra_tar_args)
     tar_cmd += ["-xf", "-"]
     tar_res = subprocess.run(tar_cmd, stdin=dec.stdout, capture_output=True)
     rc = tar_res.returncode

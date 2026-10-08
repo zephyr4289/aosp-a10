@@ -66,6 +66,11 @@ on:
         type: boolean
         required: false
         default: true
+      force_hosted:
+        description: "Force GitHub-hosted runners (ignore self-hosted fleet)"
+        type: boolean
+        required: false
+        default: false
   schedule:
     - cron: "17 3 * * 1"   # weekly catch-up (resume if a run was cut short)
     - cron: "17 3 * * *"   # daily progress pulse
@@ -88,6 +93,8 @@ jobs:
     timeout-minutes: 15
     outputs:
       runner: ${{ steps.contract.outputs.runner }}
+      slot_runner: ${{ steps.contract.outputs.slot_runner }}
+      is_fleet: ${{ steps.contract.outputs.is_fleet }}
       key: ${{ steps.contract.outputs.target_key }}
       turbo: ${{ steps.contract.outputs.turbo }}
       src_needed: ${{ steps.probe.outputs.src_needed }}
@@ -106,11 +113,13 @@ jobs:
           SKIP_TURBO: ${{ github.event.inputs.skip_turbo }}
           ROM: ${{ github.event.inputs.rom || 'qassa-a10' }}
           CANDIDATES: ${{ github.event.inputs.candidates || '20' }}
+          FORCE_HOSTED: ${{ github.event.inputs.force_hosted }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           python3 -m forge_core.cli --root . validate
           python3 - <<'PY'
-          import json, os
+          import json, os, urllib.request
           from pathlib import Path
           import forge_core.config as C
           import forge_core.turbo as T
@@ -127,11 +136,41 @@ jobs:
               n = int(os.environ.get("CANDIDATES", "20"))
           except ValueError:
               n = 20
-          mining = mining_matrix(mining=bool(n > 1), candidates=max(n, 1))
+
+          is_fleet = False
+          force_hosted = os.environ.get("FORCE_HOSTED") == "true"
+          repo = os.environ.get("REPO", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if not force_hosted and repo and token:
+              try:
+                  req = urllib.request.Request(
+                      f"https://api.github.com/repos/{repo}/actions/runners",
+                      headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "ROMForge-Plan"}
+                  )
+                  with urllib.request.urlopen(req, timeout=5) as resp:
+                      data = json.loads(resp.read().decode())
+                      for r in data.get("runners", []):
+                          labels = [l.get("name") for l in r.get("labels", [])]
+                          if r.get("status") == "online" and ("romforge" in labels or "self-hosted" in labels):
+                              is_fleet = True
+                              break
+              except Exception as e:
+                  print(f"Runner fleet probe: {e} (falling back to hosted)")
+
+          if is_fleet:
+              slot_runner = ["self-hosted", "romforge"]
+              mining = ["solo"]
+              print("🚀 Self-hosted romforge fleet runner detected! Routing jobs to fleet with zero lottery.")
+          else:
+              slot_runner = [plan.runner_image]
+              mining = mining_matrix(mining=bool(n > 1), candidates=max(n, 1))
+
           def out(k, v):
               with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
                   fh.write(f"{k}={v}\n")
           out("runner", plan.runner_image)
+          out("slot_runner", json.dumps(slot_runner))
+          out("is_fleet", "true" if is_fleet else "false")
           out("target_key", plan.rom.key)
           out("turbo", json.dumps([r["partition"] for r in rows]))
           out("target", os.environ.get("INPUT_TARGET", ""))
@@ -139,6 +178,7 @@ jobs:
           print(json.dumps(plan.to_dict(), indent=2))
           print("turbo rows:", [r["partition"] for r in rows])
           print("mining candidates:", mining)
+          print("slot runner:", slot_runner)
           PY
       - name: "Probe state store (INDEX)"
         id: probe
@@ -164,7 +204,7 @@ jobs:
     name: "Source sync + snapshot"
     needs: plan
     if: needs.plan.outputs.src_needed == 'true'
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
@@ -196,7 +236,7 @@ jobs:
       always() && needs.plan.result == 'success' &&
       needs.plan.outputs.turbo != '[]' &&
       (needs.sync.result == 'success' || needs.sync.result == 'skipped')
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     timeout-minutes: 350
     strategy:
       fail-fast: false
@@ -239,7 +279,7 @@ jobs:
     if: >-
       always() && needs.plan.result == 'success' &&
       (needs.sync.result == 'success' || needs.sync.result == 'skipped')
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     permissions:
       contents: write
     timeout-minutes: 350
@@ -261,8 +301,12 @@ jobs:
         run: |
           set -euo pipefail
           sleep $((RANDOM % 5))
+          EXTRA_MINE_ARGS=""
+          if [ "${{ needs.plan.outputs.is_fleet }}" = "true" ]; then
+            EXTRA_MINE_ARGS="--fleet"
+          fi
           python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
-            --min-score 100 --wait-s 240 --strict | tee mine.txt
+            --min-score 100 --wait-s 240 --strict $EXTRA_MINE_ARGS | tee mine.txt
           ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
           echo "role=$ROLE" >> "$GITHUB_OUTPUT"
           if [ "$ROLE" != "builder" ]; then
@@ -310,7 +354,7 @@ jobs:
     name: "Slot 2 — ${{ matrix.candidate }}"
     needs: [plan, slot-1]
     if: always() && needs.plan.result == 'success' && needs.slot-1.result != 'cancelled'
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     permissions:
       contents: write
     timeout-minutes: 350
@@ -332,8 +376,12 @@ jobs:
         run: |
           set -euo pipefail
           sleep $((RANDOM % 5))
+          EXTRA_MINE_ARGS=""
+          if [ "${{ needs.plan.outputs.is_fleet }}" = "true" ]; then
+            EXTRA_MINE_ARGS="--fleet"
+          fi
           python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
-            --min-score 100 --wait-s 240 --strict | tee mine.txt
+            --min-score 100 --wait-s 240 --strict $EXTRA_MINE_ARGS | tee mine.txt
           ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
           echo "role=$ROLE" >> "$GITHUB_OUTPUT"
           if [ "$ROLE" != "builder" ]; then
@@ -381,7 +429,7 @@ jobs:
     name: "Slot 3 — ${{ matrix.candidate }}"
     needs: [plan, slot-2]
     if: always() && needs.plan.result == 'success' && needs.slot-2.result != 'cancelled'
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     permissions:
       contents: write
     timeout-minutes: 350
@@ -403,8 +451,12 @@ jobs:
         run: |
           set -euo pipefail
           sleep $((RANDOM % 5))
+          EXTRA_MINE_ARGS=""
+          if [ "${{ needs.plan.outputs.is_fleet }}" = "true" ]; then
+            EXTRA_MINE_ARGS="--fleet"
+          fi
           python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
-            --min-score 100 --wait-s 240 --strict | tee mine.txt
+            --min-score 100 --wait-s 240 --strict $EXTRA_MINE_ARGS | tee mine.txt
           ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
           echo "role=$ROLE" >> "$GITHUB_OUTPUT"
           if [ "$ROLE" != "builder" ]; then
@@ -452,7 +504,7 @@ jobs:
     name: "Slot 4 — ${{ matrix.candidate }}"
     needs: [plan, slot-3]
     if: always() && needs.plan.result == 'success' && needs.slot-3.result != 'cancelled'
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     permissions:
       contents: write
     timeout-minutes: 350
@@ -474,8 +526,12 @@ jobs:
         run: |
           set -euo pipefail
           sleep $((RANDOM % 5))
+          EXTRA_MINE_ARGS=""
+          if [ "${{ needs.plan.outputs.is_fleet }}" = "true" ]; then
+            EXTRA_MINE_ARGS="--fleet"
+          fi
           python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
-            --min-score 100 --wait-s 240 --strict | tee mine.txt
+            --min-score 100 --wait-s 240 --strict $EXTRA_MINE_ARGS | tee mine.txt
           ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
           echo "role=$ROLE" >> "$GITHUB_OUTPUT"
           if [ "$ROLE" != "builder" ]; then
@@ -523,7 +579,7 @@ jobs:
     name: "Slot 5 — ${{ matrix.candidate }}"
     needs: [plan, slot-4]
     if: always() && needs.plan.result == 'success' && needs.slot-4.result != 'cancelled'
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     permissions:
       contents: write
     timeout-minutes: 350
@@ -545,8 +601,12 @@ jobs:
         run: |
           set -euo pipefail
           sleep $((RANDOM % 5))
+          EXTRA_MINE_ARGS=""
+          if [ "${{ needs.plan.outputs.is_fleet }}" = "true" ]; then
+            EXTRA_MINE_ARGS="--fleet"
+          fi
           python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
-            --min-score 100 --wait-s 240 --strict | tee mine.txt
+            --min-score 100 --wait-s 240 --strict $EXTRA_MINE_ARGS | tee mine.txt
           ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
           echo "role=$ROLE" >> "$GITHUB_OUTPUT"
           if [ "$ROLE" != "builder" ]; then
@@ -594,7 +654,7 @@ jobs:
     name: "Slot 6 — ${{ matrix.candidate }}"
     needs: [plan, slot-5]
     if: always() && needs.plan.result == 'success' && needs.slot-5.result != 'cancelled'
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     permissions:
       contents: write
     timeout-minutes: 350
@@ -616,8 +676,12 @@ jobs:
         run: |
           set -euo pipefail
           sleep $((RANDOM % 5))
+          EXTRA_MINE_ARGS=""
+          if [ "${{ needs.plan.outputs.is_fleet }}" = "true" ]; then
+            EXTRA_MINE_ARGS="--fleet"
+          fi
           python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
-            --min-score 100 --wait-s 240 --strict | tee mine.txt
+            --min-score 100 --wait-s 240 --strict $EXTRA_MINE_ARGS | tee mine.txt
           ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
           echo "role=$ROLE" >> "$GITHUB_OUTPUT"
           if [ "$ROLE" != "builder" ]; then
@@ -665,7 +729,7 @@ jobs:
     name: "Slot 7 — ${{ matrix.candidate }}"
     needs: [plan, slot-6]
     if: always() && needs.plan.result == 'success' && needs.slot-6.result != 'cancelled'
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     permissions:
       contents: write
     timeout-minutes: 350
@@ -687,8 +751,12 @@ jobs:
         run: |
           set -euo pipefail
           sleep $((RANDOM % 5))
+          EXTRA_MINE_ARGS=""
+          if [ "${{ needs.plan.outputs.is_fleet }}" = "true" ]; then
+            EXTRA_MINE_ARGS="--fleet"
+          fi
           python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
-            --min-score 100 --wait-s 240 --strict | tee mine.txt
+            --min-score 100 --wait-s 240 --strict $EXTRA_MINE_ARGS | tee mine.txt
           ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
           echo "role=$ROLE" >> "$GITHUB_OUTPUT"
           if [ "$ROLE" != "builder" ]; then
@@ -736,7 +804,7 @@ jobs:
     name: "Slot 8 — ${{ matrix.candidate }}"
     needs: [plan, slot-7]
     if: always() && needs.plan.result == 'success' && needs.slot-7.result != 'cancelled'
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     permissions:
       contents: write
     timeout-minutes: 350
@@ -758,8 +826,12 @@ jobs:
         run: |
           set -euo pipefail
           sleep $((RANDOM % 5))
+          EXTRA_MINE_ARGS=""
+          if [ "${{ needs.plan.outputs.is_fleet }}" = "true" ]; then
+            EXTRA_MINE_ARGS="--fleet"
+          fi
           python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
-            --min-score 100 --wait-s 240 --strict | tee mine.txt
+            --min-score 100 --wait-s 240 --strict $EXTRA_MINE_ARGS | tee mine.txt
           ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
           echo "role=$ROLE" >> "$GITHUB_OUTPUT"
           if [ "$ROLE" != "builder" ]; then
@@ -807,7 +879,7 @@ jobs:
     name: "Slot 9 — ${{ matrix.candidate }}"
     needs: [plan, slot-8]
     if: always() && needs.plan.result == 'success' && needs.slot-8.result != 'cancelled'
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     permissions:
       contents: write
     timeout-minutes: 350
@@ -829,8 +901,12 @@ jobs:
         run: |
           set -euo pipefail
           sleep $((RANDOM % 5))
+          EXTRA_MINE_ARGS=""
+          if [ "${{ needs.plan.outputs.is_fleet }}" = "true" ]; then
+            EXTRA_MINE_ARGS="--fleet"
+          fi
           python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
-            --min-score 100 --wait-s 240 --strict | tee mine.txt
+            --min-score 100 --wait-s 240 --strict $EXTRA_MINE_ARGS | tee mine.txt
           ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
           echo "role=$ROLE" >> "$GITHUB_OUTPUT"
           if [ "$ROLE" != "builder" ]; then
@@ -878,7 +954,7 @@ jobs:
     name: "Slot 10 — ${{ matrix.candidate }}"
     needs: [plan, slot-9]
     if: always() && needs.plan.result == 'success' && needs.slot-9.result != 'cancelled'
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     permissions:
       contents: write
     timeout-minutes: 350
@@ -900,8 +976,12 @@ jobs:
         run: |
           set -euo pipefail
           sleep $((RANDOM % 5))
+          EXTRA_MINE_ARGS=""
+          if [ "${{ needs.plan.outputs.is_fleet }}" = "true" ]; then
+            EXTRA_MINE_ARGS="--fleet"
+          fi
           python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
-            --min-score 100 --wait-s 240 --strict | tee mine.txt
+            --min-score 100 --wait-s 240 --strict $EXTRA_MINE_ARGS | tee mine.txt
           ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
           echo "role=$ROLE" >> "$GITHUB_OUTPUT"
           if [ "$ROLE" != "builder" ]; then
@@ -1006,7 +1086,7 @@ jobs:
     name: "14-point hard gate"
     needs: [plan, postcheck]
     if: "!cancelled() && needs.postcheck.outputs.phase == 'verify'"
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -1041,7 +1121,7 @@ jobs:
     name: "Publish (gate-gated)"
     needs: [plan, verify]
     if: always() && needs.verify.result == 'success'
-    runs-on: ${{ needs.plan.outputs.runner || 'ubuntu-22.04' }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.slot_runner || '["ubuntu-22.04"]') }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -1091,12 +1171,13 @@ jobs:
           SKIP_TURBO: ${{ github.event.inputs.skip_turbo || 'false' }}
           CANDIDATES: ${{ github.event.inputs.candidates || '20' }}
           STRICT_MINING: ${{ github.event.inputs.strict_mining || 'true' }}
+          FORCE_HOSTED: ${{ github.event.inputs.force_hosted || 'false' }}
           REF: ${{ github.ref_name }}
         run: |
           set -uo pipefail
           ARGS=(--ref "$REF" -f "rom=$ROM")
           [ -n "$TARGET" ] && ARGS+=(-f "target=$TARGET")
-          ARGS+=(-f "skip_turbo=$SKIP_TURBO" -f "candidates=$CANDIDATES" -f "strict_mining=$STRICT_MINING")
+          ARGS+=(-f "skip_turbo=$SKIP_TURBO" -f "candidates=$CANDIDATES" -f "strict_mining=$STRICT_MINING" -f "force_hosted=$FORCE_HOSTED")
           if gh workflow run forge.yml "${ARGS[@]}"; then
             echo "::notice::conveyor: re-dispatched forge.yml (rom=$ROM) — the campaign continues"
           else

@@ -76,29 +76,26 @@ def partition_plan(plan: Plan) -> List[Dict[str, str]]:
 
 
 def merge_turbo_states(build_root: Path, store, key: str) -> int:
-    """Merge every available turbo state for `key` into the live out/.
+    """Directly stream and merge every available turbo state for `key` into live out/.
 
-    Returns number of donor states merged. Idempotent (safe to call in
-    every assemble slice; --ignore-existing makes repeats free).
+    Uses streaming unpack with --skip-old-files directly into out/, eliminating
+    intermediate staging directories and double disk footprint.
+    Returns number of donor states merged. Idempotent (safe to call in every assemble slice).
     """
-    from . import relay
     merged = 0
+    out_dir = build_root / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir.resolve() if out_dir.is_symlink() else out_dir
+
     for tag in store.list_tags(f"state-{key}-turbo-"):
-        part = tag.rsplit("-", 1)[-1]
-        tmp = build_root.parent / f".forge-turbo-{part}"
-        donor = build_root.parent / f".forge-turbo-incoming-{part}"
-        if donor.exists():
-            continue
         try:
             from . import chunker
-            chunker.unpack_from_store(store, tag, "out", donor, strip=False)
-            relay.merge(build_root, donor / "out")
+            chunker.unpack_from_store(store, tag, "out", dest, strip=True,
+                                      extra_tar_args=["--skip-old-files"])
             merged += 1
+            log.ok(f"turbo: directly merged partition state {tag} into out/")
         except Exception as e:
-            log.warn(f"turbo state {tag} unpack failed ({e}) — skipping")
-        finally:
-            import shutil
-            shutil.rmtree(donor, ignore_errors=True)
+            log.warn(f"turbo state {tag} direct merge failed ({e}) — skipping")
     if merged:
         log.ok(f"turbo: merged {merged} partition states into out/")
     return merged
