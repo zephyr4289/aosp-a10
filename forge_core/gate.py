@@ -345,15 +345,16 @@ class Gate:
             dtbo = self.pdir / "dtbo.img"
             if self.dev.dtbo_required:
                 if not dtbo.exists():
-                    dtbo_note = "dtbo.img not found (embedded in boot.img assumed); "
-                else:
-                    try:
-                        parse_dtbo_header(dtbo)
-                        dtbo_note = "dtbo ok; "
-                    except (ValueError, struct.error):
-                        self.report.add(6, "boot image anatomy", FAIL,
-                                        "dtbo.img has bad magic")
-                        return
+                    self.report.add(6, "boot image anatomy", FAIL,
+                                    "dtbo_required=true but dtbo.img not found")
+                    return
+                try:
+                    parse_dtbo_header(dtbo)
+                    dtbo_note = "dtbo ok; "
+                except (ValueError, struct.error):
+                    self.report.add(6, "boot image anatomy", FAIL,
+                                    "dtbo.img has bad magic")
+                    return
             elif dtbo.exists():
                 try:
                     parse_dtbo_header(dtbo)

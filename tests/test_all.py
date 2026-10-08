@@ -15,6 +15,7 @@ Covers the load-bearing claims of the architecture:
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import random
 import shutil
@@ -244,7 +245,8 @@ def test_gate(tmp: Path) -> None:
         if poison != "payload-mismatch":
             (t2 / "out" / "target" / "product" / "PL2" / "rom-bad.zip") \
                 .unlink(missing_ok=True)
-        g = gate.Gate(dev, rom, pdir, rom_zip=z, host_tools=None)
+        dev_to_use = dataclasses.replace(dev, dtbo_required=True) if poison == "missing-dtbo" else dev
+        g = gate.Gate(dev_to_use, rom, pdir, rom_zip=z, host_tools=None)
         rep = g.run()
         by = {r.id: r for r in rep.results}
         check(f"{poison} -> check {check_id} FAIL", by[check_id].status == "FAIL",
@@ -497,9 +499,21 @@ def test_e2e_plumbing(tmp: Path) -> None:
     check("state restored", relay.restore(br3, st, "state-k-s1")
           and (br3 / "out" / "target" / "x.bin").read_bytes() == b"payload"
           and (br3 / "out" / ".ninja_log").exists())
-    # relay retains symbols to prevent objcopy/strip ENOENT failures on resume
-    check("relay retains symbols for strip integrity",
-          (br3 / "out" / "target" / "product" / "PL2" / "symbols" / "lib.so").exists())
+    # F1: symbols/ is excluded from relay state to save 8-15GB per bank
+    check("relay excludes symbols for state efficiency",
+          not (br3 / "out" / "target" / "product" / "PL2" / "symbols" / "lib.so").exists())
+
+    # F4: product-state banking & restoration
+    (br / "out" / "target" / "product" / "PL2" / "obj").mkdir(parents=True, exist_ok=True)
+    (br / "out" / "target" / "product" / "PL2" / "rom.zip").write_bytes(b"romzip")
+    (br / "out" / "target" / "product" / "PL2" / "obj" / "temp.o").write_bytes(b"temp_obj")
+    st.create("state-k-final-product", "t", "n")
+    np = relay.bank_product_state(br, st, "state-k-final-product", "k")
+    check("product-state banked", np >= 1)
+    br4 = tmp / "home4" / "aosp"
+    check("product-state restored", relay.restore(br4, st, "state-k-final-product")
+          and (br4 / "out" / "target" / "product" / "PL2" / "rom.zip").read_bytes() == b"romzip"
+          and not (br4 / "out" / "target" / "product" / "PL2" / "obj" / "temp.o").exists())
 
 
 def main() -> int:

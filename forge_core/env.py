@@ -254,6 +254,53 @@ def _active_swap_gb() -> float:
     return 0.0
 
 
+def ensure_zram(size_gb: int = 8) -> bool:
+    """Set up tier-1 compressed RAM swap (zram) with high priority (p=100).
+
+    Compresses in-RAM memory spikes (e.g. Soong AST parsing) with zero disk I/O.
+    Gracefully degrades if unprivileged or kernel module unavailable.
+    """
+    try:
+        if not os.path.exists("/dev/zram0"):
+            _safe_run(["sudo", "modprobe", "zram"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if not os.path.exists("/dev/zram0"):
+            return False
+
+        # Check if already active swap
+        current_swaps = ""
+        try:
+            if os.path.exists("/proc/swaps"):
+                current_swaps = Path("/proc/swaps").read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+        if "/dev/zram0" in current_swaps:
+            protect_runner_processes()
+            return True
+
+        # Initialize zram device size & compression algorithm
+        zramctl_found = shutil.which("zramctl")
+        if zramctl_found:
+            _safe_run(["sudo", "zramctl", "-s", f"{size_gb}G", "-a", "zstd", "/dev/zram0"],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif os.path.exists("/sys/block/zram0/disksize"):
+            try:
+                if os.path.exists("/sys/block/zram0/comp_algorithm"):
+                    _safe_run(["sudo", "sh", "-c", "echo zstd > /sys/block/zram0/comp_algorithm 2>/dev/null || true"])
+                _safe_run(["sudo", "sh", "-c", f"echo {size_gb}G > /sys/block/zram0/disksize 2>/dev/null || true"])
+            except Exception:
+                pass
+
+        _safe_run(["sudo", "mkswap", "/dev/zram0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        r = _safe_run(["sudo", "swapon", "-p", "100", "/dev/zram0"], capture_output=True, text=True)
+        protect_runner_processes()
+        if r and r.returncode == 0:
+            log.ok(f"zram tier-1 swap active: +{size_gb} GB on /dev/zram0 (p=100)")
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def ensure_swap(swap_path: str, size_gb: int = 8) -> bool:
     current = _active_swap_gb()
     if current >= size_gb:

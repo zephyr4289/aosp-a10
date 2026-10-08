@@ -204,6 +204,10 @@ def cmd_prepare(args, root: Path) -> int:
         pass
     if plan:
         try:
+            fenv.ensure_zram(8)
+        except Exception:
+            pass
+        try:
             swap_path = str(swap_dir / ".forge-swap")
             fenv.ensure_swap(swap_path, size_gb=int(plan.version.get("swap_gb", 4)))
         except Exception:
@@ -422,6 +426,12 @@ def cmd_slice(args, root: Path) -> int:
                          "Final state: carries the ROM zip for the gate.")
         relay.bank(build_root, store, tag, plan.rom.key, n,
                    notes="final state, classification=done")
+
+        # F4: Also bank the lightweight product-state (2-4 GB) for fast gate verification and publish
+        prod_tag = f"state-{plan.rom.key}-final-product"
+        relay.bank_product_state(build_root, store, prod_tag, plan.rom.key,
+                                 notes=f"lightweight product-state after slice {n}")
+
         store.target_update(plan.rom.key, slice=n, state_tag=tag, done=True,
                             rom_zip=str(rom_zip),
                             last_classification="done", stop_reason="")
@@ -474,6 +484,15 @@ def _ensure_out(plan, store, build_root: Path) -> None:
     dev = plan.rom.device or (plan.rom.lunch.split("_")[1].split("-")[0] if "_" in plan.rom.lunch else plan.rom.lunch.split("-")[0])
     if (build_root / "out" / "target" / "product" / dev).exists():
         return
+    # 1. Prefer lightweight product-state tag if available (2-4 GB vs 35-50 GB full state)
+    prod_tag = f"state-{plan.rom.key}-final-product"
+    if store.exists(prod_tag):
+        log.log(f"restoring lightweight product-state {prod_tag}...")
+        if relay.restore(build_root, store, prod_tag):
+            log.ok(f"restored product-state from {prod_tag}")
+            return
+
+    # 2. Fall back to target INDEX state_tag or newest slice state
     t = store.target(plan.rom.key)
     tag = t.get("state_tag", "")
     if not tag or not store.exists(tag):

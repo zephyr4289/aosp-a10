@@ -128,6 +128,53 @@ class TestStressDisk(unittest.TestCase):
         self.assertTrue(ok)
         self.assertTrue((new_mnt_out / "target.img").exists())
 
+    def test_state_pack_excludes_symbols(self):
+        """F1: relay.bank must exclude symbols directories to avoid banking 8-15GB of unstripped fat."""
+        fs = store.FsStore(self.tmp / "store_sym")
+        tag = "state-sym-test"
+        fs.create(tag, "sym state", "notes")
+
+        # Create out tree with target files and symbols
+        (self.build_root / "out" / "target" / "product" / "PL2" / "obj" / "lib.o").parent.mkdir(parents=True, exist_ok=True)
+        (self.build_root / "out" / "target" / "product" / "PL2" / "obj" / "lib.o").write_bytes(b"compiled object")
+        (self.build_root / "out" / "target" / "product" / "PL2" / "symbols" / "lib.so").parent.mkdir(parents=True, exist_ok=True)
+        (self.build_root / "out" / "target" / "product" / "PL2" / "symbols" / "lib.so").write_bytes(b"symbol table")
+
+        n = relay.bank(self.build_root, fs, tag, "sym-key", 1)
+        self.assertGreater(n, 0)
+
+        # Restore into clean destination
+        dest = self.tmp / "dest_sym"
+        dest.mkdir()
+        ok = relay.restore(dest, fs, tag)
+        self.assertTrue(ok)
+        self.assertTrue((dest / "out" / "target" / "product" / "PL2" / "obj" / "lib.o").exists())
+        self.assertFalse((dest / "out" / "target" / "product" / "PL2" / "symbols" / "lib.so").exists())
+
+    def test_product_state_banking_and_restore(self):
+        """F4: relay.bank_product_state packs ROM zip and partition images while dropping obj/ intermediates."""
+        fs = store.FsStore(self.tmp / "store_prod")
+        tag = "state-prod-test"
+        fs.create(tag, "product state", "notes")
+
+        pdir = self.build_root / "out" / "target" / "product" / "PL2"
+        pdir.mkdir(parents=True, exist_ok=True)
+        (pdir / "rom.zip").write_bytes(b"ROM ZIP DATA")
+        (pdir / "system.img").write_bytes(b"SYSTEM IMAGE")
+        (pdir / "obj" / "big_intermediate.o").parent.mkdir(parents=True, exist_ok=True)
+        (pdir / "obj" / "big_intermediate.o").write_bytes(b"INTERMEDIATE")
+
+        n = relay.bank_product_state(self.build_root, fs, tag, "prod-key")
+        self.assertGreater(n, 0)
+
+        dest = self.tmp / "dest_prod"
+        dest.mkdir()
+        ok = relay.restore(dest, fs, tag)
+        self.assertTrue(ok)
+        self.assertTrue((dest / "out" / "target" / "product" / "PL2" / "rom.zip").exists())
+        self.assertTrue((dest / "out" / "target" / "product" / "PL2" / "system.img").exists())
+        self.assertFalse((dest / "out" / "target" / "product" / "PL2" / "obj" / "big_intermediate.o").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -77,6 +77,22 @@ class TestStoreFaults(unittest.TestCase):
 
         self.assertFalse(chunker.verify(parts_dir, "out"))
 
+    def test_list_tags_pagination(self):
+        """F8 / 2.6: list_tags handles large lists and matches prefix correctly."""
+        import json
+        rel_store = store.ReleaseStore(repo="test/repo")
+        mock_tags = [{"tagName": f"state-rom-s{i}"} for i in range(1, 250)]
+        mock_tags += [{"tagName": "src-mhash123"}, {"tagName": "forge-index"}]
+
+        res = MagicMock()
+        res.returncode = 0
+        res.stdout = json.dumps(mock_tags)
+
+        with patch.object(rel_store, "_gh", return_value=res):
+            tags = rel_store.list_tags("state-rom-s")
+            self.assertEqual(len(tags), 249)
+            self.assertTrue(all(t.startswith("state-rom-s") for t in tags))
+
 
 if __name__ == "__main__":
     unittest.main()

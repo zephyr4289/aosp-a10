@@ -174,11 +174,15 @@ class ReleaseStore:
         self.create(tag, title, notes)
 
     def list_tags(self, prefix: str) -> List[str]:
-        r = self._gh("release", "list", "--limit", "200", "--json", "tagName")
+        # Fetch up to 1000 release tags (gh paginates internally up to the limit)
+        r = self._gh("release", "list", "--limit", "1000", "--json", "tagName", check=False)
         if r.returncode != 0:
             return []
-        return [e["tagName"] for e in json.loads(r.stdout or "[]")
-                if str(e.get("tagName", "")).startswith(prefix)]
+        try:
+            return [e["tagName"] for e in json.loads(r.stdout or "[]")
+                    if str(e.get("tagName", "")).startswith(prefix)]
+        except Exception:
+            return []
 
     def sink_command(self, tag: str) -> str:
         """Shell snippet for chunker.stream_pack: upload $FILE to a release."""

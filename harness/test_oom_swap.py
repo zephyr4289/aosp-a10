@@ -64,6 +64,39 @@ class TestOomSwap(unittest.TestCase):
             res = fenv.activate_swap_chunk("/tmp/chunk1", chunk_size_gb=2)
         self.assertTrue(res)
 
+    def test_gomemlimit_and_soong_memory_controls(self):
+        """F11 / 1.5: engine.build_env must set GOMEMLIMIT to shield runner memory from Soong OOM spikes."""
+        from forge_core import engine
+        plan = config.build_plan(self.root, self.root / "configs" / "roms" / "qassa-a10.yaml")
+        env = engine.build_env(plan, self.root / "build_test")
+        self.assertIn("GOMEMLIMIT", env)
+        self.assertEqual(env["GOMEMLIMIT"], "11GiB")
+
+        # Verify environment override knob
+        with patch.dict("os.environ", {"FORGE_SOONG_MEM_LIMIT": "12GiB"}):
+            env2 = engine.build_env(plan, self.root / "build_test")
+            self.assertEqual(env2["GOMEMLIMIT"], "12GiB")
+
+    def test_ensure_zram_lifecycle_and_fallback(self):
+        """F11 / 1.5: ensure_zram sets up compressed swap device and handles fallback gracefully."""
+        succ = subprocess.CompletedProcess(["swapon"], 0, stdout="", stderr="")
+
+        def fake_safe_run(cmd, **kwargs):
+            return succ
+
+        # Graceful fallback when /dev/zram0 does not exist and modprobe fails
+        with patch("os.path.exists", return_value=False), \
+             patch("forge_core.env._safe_run", side_effect=fake_safe_run):
+            res = fenv.ensure_zram(size_gb=8)
+            self.assertFalse(res)
+
+        # Success path when /dev/zram0 is available and swapon succeeds
+        with patch("os.path.exists", return_value=True), \
+             patch("forge_core.env._safe_run", side_effect=fake_safe_run), \
+             patch("shutil.which", return_value="/usr/sbin/zramctl"):
+            res = fenv.ensure_zram(size_gb=8)
+            self.assertTrue(res)
+
 
 if __name__ == "__main__":
     unittest.main()

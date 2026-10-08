@@ -81,6 +81,8 @@ def build_env(plan, build_root: Path, use_ccache: bool = False) -> Dict[str, str
         "OUT_DIR": str(build_root / "out"),
         "ALLOW_MISSING_DEPENDENCIES":
             e.get("ALLOW_MISSING_DEPENDENCIES", "false"),
+        # Memory shield: Bound Go runtime memory for Soong AST parser to prevent runaway GC thrash & OOM
+        "GOMEMLIMIT": os.environ.get("FORGE_SOONG_MEM_LIMIT", "11GiB"),
     })
     for k, v in plan.rom.env.items():
         e[str(k)] = str(v)
