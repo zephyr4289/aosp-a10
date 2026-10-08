@@ -24,8 +24,11 @@ device_repos:
   - path: device/google/zuma
     url: https://github.com/LineageOS/android_device_google_zuma
     branch: lineage-23.2
-  - path: kernel/google/zuma
-    url: https://github.com/LineageOS/android_kernel_google_zuma
+  - path: device/google/shusky-kernels
+    url: https://github.com/LineageOS/android_device_google_shusky-kernels
+    branch: lineage-23.2
+  - path: vendor/google/shiba
+    url: https://github.com/TheMuppets/proprietary_vendor_google_shiba
     branch: lineage-23.2
 
 env:
