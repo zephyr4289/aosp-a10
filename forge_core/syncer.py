@@ -215,6 +215,8 @@ def sync_tree(plan: Plan, build_root: Path, sync_jobs: int = 8) -> str:
                 shutil.rmtree(dst)
             _run(["git", "clone", "--depth=1", "-b", branch, url, str(dst)],
                  retries=2)
+            if shutil.which("git-lfs"):
+                subprocess.run(["git", "lfs", "pull"], cwd=str(dst), capture_output=True)
         else:  # manifest mode: rescue only if sync left the path broken
             if not (dst / ".git").exists() and not (dst / "Android.mk").exists() \
                     and not (dst / "AndroidProducts.mk").exists() \
@@ -224,6 +226,8 @@ def sync_tree(plan: Plan, build_root: Path, sync_jobs: int = 8) -> str:
                     shutil.rmtree(dst)
                 _run(["git", "clone", "--depth=1", "-b", branch, url, str(dst)],
                      retries=2)
+                if shutil.which("git-lfs"):
+                    subprocess.run(["git", "lfs", "pull"], cwd=str(dst), capture_output=True)
 
     # fingerprint BEFORE stripping .repo (manifest must be readable)
     manifest_path = build_root / ".repo" / "manifests" / "manifest.xml"
