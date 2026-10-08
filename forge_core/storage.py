@@ -389,6 +389,28 @@ def trim(vol_mnt: Optional[str] = None) -> float:
     return after
 
 
+def ckpt_snapshot(out_dir: Path, name: str = "ckpt") -> Optional[Path]:
+    """Take a lightweight mid-slice checkpoint snapshot of out_dir.
+
+    On btrfs, takes an O(metadata) subvolume snapshot in sub-seconds.
+    On plain filesystems, returns None gracefully.
+    """
+    if not out_dir.exists():
+        return None
+    vol_mnt = str(backing_dir() / VOL_MNT_NAME)
+    if _proc_mounts().get(vol_mnt) == "btrfs":
+        snapshots_dir = Path(vol_mnt) / "snapshots"
+        snapshots_dir.mkdir(parents=True, exist_ok=True)
+        snap_target = snapshots_dir / f"out-{name}"
+        if snap_target.exists():
+            _sudo(["btrfs", "subvolume", "delete", str(snap_target)])
+        r = _sudo(["btrfs", "subvolume", "snapshot", "-r", str(out_dir), str(snap_target)])
+        if r.returncode == 0:
+            log.ok(f"checkpoint btrfs snapshot created at {snap_target.name}")
+            return snap_target
+    return None
+
+
 def selftest(size_mb: int = 256) -> Dict[str, object]:
     """Prove this host can do btrfs loop mounts at all (CI runs this on a
     real ubuntu runner; sandboxes without sudo get a clean negative)."""

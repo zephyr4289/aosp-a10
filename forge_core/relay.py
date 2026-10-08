@@ -221,8 +221,8 @@ def restore(build_root: Path, store, tag: str) -> bool:
     except Exception as e:
         log.warn(f"unpacking out state from {tag} failed: {e}")
         return False
-    # Clean stale temporary and bootstrap directories inside out/soong
-    for soong_stale in (".temp", ".minibootstrap", ".bootstrap", ".glob"):
+    # Clean stale temporary directories inside out/soong
+    for soong_stale in (".temp",):
         p = dest / "soong" / soong_stale
         if p.exists():
             shutil.rmtree(p, ignore_errors=True)

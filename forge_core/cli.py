@@ -22,12 +22,13 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional
 
 from . import __version__
 from . import chunker, config, dag, engine, env as fenv, gate as fgate
-from . import log, mine, relay, storage, syncer, turbo
+from . import graph, log, mine, relay, storage, syncer, turbo
 from .config import ConfigError, build_plan
 from .store import FsStore, ReleaseStore, Router, StoreError
 
@@ -378,26 +379,8 @@ def cmd_slice(args, root: Path) -> int:
             return 0
         return 1 if res["classification"] == "error" else 0
 
-    # ---- 3. main-chain slice --------------------------------------------------
-    if (build_root / "out" / ".ninja_log").exists():
-        log.ok("warm out/ present — exact resume")
-    else:
-        restored = False
-        if t.get("state_tag") and relay.restore(build_root, store, t["state_tag"]):
-            log.ok(f"resumed state {t['state_tag']} (slice {t.get('slice', 0)})")
-            restored = True
-        else:
-            # Fallback: scan newest state-<key>-s* tags
-            candidate_tags = sorted(store.list_tags(f"state-{plan.rom.key}-s"), reverse=True)
-            for ctag in candidate_tags:
-                if ctag != t.get("state_tag") and relay.restore(build_root, store, ctag):
-                    log.ok(f"fallback resumed newest available state {ctag}")
-                    restored = True
-                    break
-        if not restored:
-            log.log("cold out/ — merging any turbo prewarm states")
-            turbo.merge_turbo_states(build_root, store, plan.rom.key)
-
+def _run_single_slice(plan, store, build_root: Path, budget: int, args, use_ccache: bool) -> int:
+    t = store.target(plan.rom.key)
     syncer.ensure_prebuilts(build_root)
 
     log_file = Path(args.log or "/tmp/forge-slice.log")
@@ -415,6 +398,15 @@ def cmd_slice(args, root: Path) -> int:
     log.out("stop_reason", str(res.get("stop_reason", "")))
     log.out("rom_zip", str(rom_zip) if rom_zip else "")
     engine.slice_summary(res, log_file, build_root / "out", budget)
+
+    # Bank graph if soong created build.ninja and mhash exists
+    src_tag = t.get("src_tag", "")
+    mhash = src_tag.replace("src-", "") if src_tag.startswith("src-") else getattr(plan, "mhash", "")
+    if mhash:
+        try:
+            graph.bank_graph(build_root, store, mhash, plan.rom.lunch)
+        except Exception:
+            pass
 
     if res["classification"] == "done":
         # bank the FINAL out/ too: verify+publish run on fresh runners and
@@ -477,6 +469,129 @@ def cmd_slice(args, root: Path) -> int:
                         last_classification="error",
                         stop_reason=str(res.get("stop_reason", "")))
     return 1
+
+
+def cmd_slice(args, root: Path) -> int:
+    plan = _plan_from_args(args, root)
+    store = _store(args, root)
+    t = store.target(plan.rom.key)
+
+    # ---- 0. done short-circuit -----------------------------------------------
+    if t.get("done") and not args.force:
+        log.ok(f"{plan.rom.key} is already marked DONE in INDEX — nothing to slice")
+        log.out("classification", "done")
+        return 0
+
+    # ---- 0. capacity halt: the storage-deadlock guard -----------------------
+    if t.get("last_classification") == "capacity" and not args.force:
+        log.warn("INDEX says the last slice stopped on DISK CAPACITY — "
+                 "refusing to re-run (this is the deadlock guard; re-"
+                 "dispatching would burn 30 min to reproduce the same "
+                 "stop). Grow the volume (FORGE_VOLUME_RESERVE_GB) or "
+                 "prune the working set, then --force.")
+        log.out("classification", "capacity")
+        return 1
+
+    # ---- 1. storage volume + tree --------------------------------------------
+    vol = _ensure_volume(args)
+    build_root = Path(vol.build_root) if vol.build_root else _build_root(args)
+
+    # ---- 2. source ----------------------------------------------------------
+    src_tag = (f"src-{args.mhash}" if getattr(args, "mhash", None) else None) or t.get("src_tag")
+    if not src_tag or not store.exists(src_tag):
+        log.die(f"no source snapshot for {plan.rom.key} — the sync job must "
+                f"run first (this is a workflow wiring bug otherwise)")
+    if not (build_root / ".source_ready").exists():
+        if not syncer.restore_source(build_root, store, src_tag):
+            log.die(f"source restore failed from {src_tag}")
+    syncer.ensure_device_repos(plan, build_root)
+    syncer.apply_patches(plan, build_root, root)
+    syncer.validate_lunch(plan, build_root)
+
+    use_ccache = plan.rom.env.get("USE_CCACHE") == "1"
+    budget = int(args.budget_s or plan.rom.slice_build_seconds)
+
+    # ---- 2. turbo partition prewarm slot -------------------------------------
+    if args.turbo_part:
+        target = args.turbo_part
+        tag = f"state-{plan.rom.key}-turbo-{target}"
+        if store.exists(tag) and not args.force:
+            log.ok(f"turbo state {tag} exists — skipping")
+            log.out("classification", "done")
+            return 0
+        res = engine.run_slice(plan, build_root, target, budget,
+                               Path(args.log or "/tmp/forge-turbo.log"),
+                               use_ccache=use_ccache, allow_missing_deps=True)
+        log.out("classification", res["classification"])
+        if res["classification"] == "done":
+            if not store.exists(tag):
+                store.create(tag, f"turbo {target} {plan.rom.key}",
+                             "Partition prewarm state.")
+            relay.bank(build_root, store, tag, plan.rom.key, 0,
+                       notes=f"turbo {target}")
+            return 0
+        return 1 if res["classification"] == "error" else 0
+
+    # ---- 3. main-chain slice state restore -----------------------------------
+    if (build_root / "out" / ".ninja_log").exists():
+        log.ok("warm out/ present — exact resume")
+    else:
+        restored = False
+        if t.get("state_tag") and relay.restore(build_root, store, t["state_tag"]):
+            log.ok(f"resumed state {t['state_tag']} (slice {t.get('slice', 0)})")
+            restored = True
+        else:
+            # Fallback: scan newest state-<key>-s* tags
+            candidate_tags = sorted(store.list_tags(f"state-{plan.rom.key}-s"), reverse=True)
+            for ctag in candidate_tags:
+                if ctag != t.get("state_tag") and relay.restore(build_root, store, ctag):
+                    log.ok(f"fallback resumed newest available state {ctag}")
+                    restored = True
+                    break
+        if not restored:
+            log.log("cold out/ — merging any turbo prewarm states")
+            turbo.merge_turbo_states(build_root, store, plan.rom.key)
+            # Try restoring banked Soong graph if available
+            mhash = src_tag.replace("src-", "") if src_tag.startswith("src-") else getattr(plan, "mhash", "")
+            if mhash:
+                graph.restore_graph(build_root, store, mhash, plan.rom.lunch)
+
+    wall_budget = int(getattr(args, "until_budget", 0) or os.environ.get("FORGE_UNTIL_BUDGET_S", 0) or 0)
+    if not wall_budget:
+        return _run_single_slice(plan, store, build_root, budget, args, use_ccache)
+
+    # ---- 4. Fusion Slot loop (Phase 2.1) -------------------------------------
+    BANK_RESERVE_S = 1800
+    MIN_SLICE_S = 1800
+    start_wall = time.time()
+    slice_count = 0
+    log.ok(f"fusion slot enabled: {wall_budget // 60}m job wall budget")
+
+    while True:
+        elapsed = time.time() - start_wall
+        rem = wall_budget - elapsed
+        if rem < MIN_SLICE_S + BANK_RESERVE_S:
+            log.log(f"fusion loop: {rem // 60:.0f}m wall left (< reserve {BANK_RESERVE_S // 60}m) — ending job cleanly")
+            return 0
+
+        cur_t = store.target(plan.rom.key)
+        if cur_t.get("done") and not args.force:
+            log.ok("fusion loop: INDEX done=true — completed")
+            return 0
+        if cur_t.get("last_classification") == "capacity" and not args.force:
+            log.warn("fusion loop: capacity stopped — ending job")
+            return 0
+
+        this_slice_budget = min(budget, int(rem - BANK_RESERVE_S))
+        slice_count += 1
+        log.ok(f"=== Starting fusion slice {slice_count} (budget: {this_slice_budget // 60}m, wall left: {rem // 60:.0f}m) ===")
+        rc = _run_single_slice(plan, store, build_root, this_slice_budget, args, use_ccache)
+        if rc != 0:
+            return rc
+
+        after_t = store.target(plan.rom.key)
+        if after_t.get("done") or after_t.get("last_classification") == "capacity":
+            return 0
 
 
 def _ensure_out(plan, store, build_root: Path) -> None:
@@ -622,6 +737,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             ("--what", {"default": None, "choices": ["src", "state", "turbo"]}),
             ("--turbo-part", {"default": None}),
             ("--budget-s", {"default": None}),
+            ("--until-budget", {"default": None, "type": int}),
             ("--log", {"default": None}),
             ("--rom-zip", {"default": None}),
             ("--report", {"default": None}),

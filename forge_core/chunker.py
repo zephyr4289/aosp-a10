@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import queue
 import shutil
 import subprocess
 import threading
@@ -282,11 +283,12 @@ def unpack(parts_dir: Path, prefix: str, dest: Path, strip: bool = False) -> Non
 
 
 def unpack_from_store(store, tag: str, prefix: str, dest: Path,
-                      strip: bool = False, tmp_dir: Optional[Path] = None) -> None:
-    """Stream-download and unpack parts one-by-one directly from store to dest.
+                      strip: bool = False, tmp_dir: Optional[Path] = None,
+                      prefetch: int = 2) -> None:
+    """Stream-download and unpack parts directly from store to dest.
 
-    Guarantees that at most ONE 2GB part file exists on disk at any moment,
-    eliminating the 20-30GB staging disk overhead completely.
+    Prefetches up to `prefetch` parts concurrently in the background, overlapping
+    network downloads with decompression while keeping disk usage bounded.
     """
     tmp_dir = tmp_dir or (dest.parent / f".forge-dl-{prefix}-stream")
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -321,36 +323,63 @@ def unpack_from_store(store, tag: str, prefix: str, dest: Path,
                            stdout=subprocess.PIPE)
     assert dec.stdin is not None
     assert dec.stdout is not None
-    feeder_error = []
+    feeder_error: List[str] = []
+    prefetch_q: queue.Queue = queue.Queue(maxsize=max(1, prefetch))
+    stop_event = threading.Event()
 
-    def feeder():
+    def downloader():
         try:
-            total_parts = len(part_names)
+            total = len(part_names)
             for idx, name in enumerate(part_names, 1):
+                if stop_event.is_set():
+                    break
                 part_path = tmp_dir / name
                 now_str = time.strftime("%H:%M:%S")
-                print(f"[{now_str}] [RESTORE] downloading & decompressing {prefix} part {idx}/{total_parts}: {name} ...", flush=True)
+                print(f"[{now_str}] [RESTORE] downloading {prefix} part {idx}/{total}: {name} ...", flush=True)
                 store.download_file(tag, name, part_path)
                 if name in expected_sums:
                     got_h = _hash_file(part_path)
                     if got_h != expected_sums[name]:
-                        feeder_error.append(
-                            f"sha256 mismatch for {name}: expected {expected_sums[name]} got {got_h}")
+                        err = f"sha256 mismatch for {name}: expected {expected_sums[name]} got {got_h}"
+                        feeder_error.append(err)
                         part_path.unlink(missing_ok=True)
+                        prefetch_q.put((None, None, err))
                         return
+                prefetch_q.put((idx, part_path, None))
+        except Exception as e:
+            feeder_error.append(str(e))
+            prefetch_q.put((None, None, str(e)))
+        finally:
+            prefetch_q.put((None, None, None))  # sentinel
+
+    def feeder():
+        try:
+            total = len(part_names)
+            while True:
+                idx, part_path, err = prefetch_q.get()
+                if err:
+                    feeder_error.append(err)
+                    break
+                if part_path is None:
+                    break
+                now_str = time.strftime("%H:%M:%S")
+                print(f"[{now_str}] [RESTORE] decompressing {prefix} part {idx}/{total} ...", flush=True)
                 with open(part_path, "rb") as fh:
                     shutil.copyfileobj(fh, dec.stdin, length=16 * 1024 * 1024)
                 part_path.unlink(missing_ok=True)
-                print(f"[{time.strftime('%H:%M:%S')}] [RESTORE] unpacked part {idx}/{total_parts} into destination", flush=True)
+                print(f"[{time.strftime('%H:%M:%S')}] [RESTORE] unpacked part {idx}/{total} into destination", flush=True)
         except Exception as e:
             feeder_error.append(str(e))
+            stop_event.set()
         finally:
             try:
                 dec.stdin.close()
             except Exception:
                 pass
 
+    dl_thread = threading.Thread(target=downloader, daemon=True)
     feed_thread = threading.Thread(target=feeder, daemon=True)
+    dl_thread.start()
     feed_thread.start()
 
     tar_cmd = ["tar", "-C", str(dest)]
@@ -360,6 +389,7 @@ def unpack_from_store(store, tag: str, prefix: str, dest: Path,
     tar_res = subprocess.run(tar_cmd, stdin=dec.stdout, capture_output=True)
     rc = tar_res.returncode
     dec_rc = dec.wait()
+    dl_thread.join()
     feed_thread.join()
     shutil.rmtree(tmp_dir, ignore_errors=True)
 

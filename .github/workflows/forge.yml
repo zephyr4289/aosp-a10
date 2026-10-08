@@ -289,6 +289,8 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORGE_UNTIL_BUDGET_S: "19200"
+          FORGE_CKPT_MIN: "45"
           FORGE_SLOT: "1"
         run: |
           set -euo pipefail
@@ -358,6 +360,8 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORGE_UNTIL_BUDGET_S: "19200"
+          FORGE_CKPT_MIN: "45"
           FORGE_SLOT: "2"
         run: |
           set -euo pipefail
@@ -427,6 +431,8 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORGE_UNTIL_BUDGET_S: "19200"
+          FORGE_CKPT_MIN: "45"
           FORGE_SLOT: "3"
         run: |
           set -euo pipefail
@@ -496,6 +502,8 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORGE_UNTIL_BUDGET_S: "19200"
+          FORGE_CKPT_MIN: "45"
           FORGE_SLOT: "4"
         run: |
           set -euo pipefail
@@ -565,6 +573,8 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORGE_UNTIL_BUDGET_S: "19200"
+          FORGE_CKPT_MIN: "45"
           FORGE_SLOT: "5"
         run: |
           set -euo pipefail
@@ -634,6 +644,8 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORGE_UNTIL_BUDGET_S: "19200"
+          FORGE_CKPT_MIN: "45"
           FORGE_SLOT: "6"
         run: |
           set -euo pipefail
@@ -703,6 +715,8 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORGE_UNTIL_BUDGET_S: "19200"
+          FORGE_CKPT_MIN: "45"
           FORGE_SLOT: "7"
         run: |
           set -euo pipefail
@@ -772,6 +786,8 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORGE_UNTIL_BUDGET_S: "19200"
+          FORGE_CKPT_MIN: "45"
           FORGE_SLOT: "8"
         run: |
           set -euo pipefail
@@ -841,6 +857,8 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORGE_UNTIL_BUDGET_S: "19200"
+          FORGE_CKPT_MIN: "45"
           FORGE_SLOT: "9"
         run: |
           set -euo pipefail
@@ -910,6 +928,8 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORGE_UNTIL_BUDGET_S: "19200"
+          FORGE_CKPT_MIN: "45"
           FORGE_SLOT: "10"
         run: |
           set -euo pipefail

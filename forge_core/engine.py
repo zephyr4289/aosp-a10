@@ -381,9 +381,22 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
             except Exception:
                 pass
 
+    # ---- mid-slice checkpoint watchdog (Phase 2.2) --------------------------
+    ckpt_min = int(os.environ.get("FORGE_CKPT_MIN", "0") or 0)
+
+    def checkpoint_watchdog() -> None:
+        if ckpt_min <= 0:
+            return
+        while not stop.wait(ckpt_min * 60):
+            try:
+                storage.ckpt_snapshot(build_root / "out", f"t{int(time.time())}")
+            except Exception:
+                pass
+
     threads = [threading.Thread(target=budget_watchdog, daemon=True),
                threading.Thread(target=disk_watchdog, daemon=True),
                threading.Thread(target=dynamic_swap_watchdog, daemon=True),
+               threading.Thread(target=checkpoint_watchdog, daemon=True),
                threading.Thread(target=live_heartbeat, daemon=True)]
     for t in threads:
         t.start()

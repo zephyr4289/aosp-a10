@@ -364,8 +364,8 @@ def ensure_prebuilts(build_root: Path) -> None:
             shutil.rmtree(p, ignore_errors=True)
         for p in out_dir.glob("target/product/*/system/product/app/webview*"):
             shutil.rmtree(p, ignore_errors=True)
-        # Purge temporary and bootstrap directories inside out/soong so Soong cleanly bootstraps
-        for soong_stale in (".temp", ".minibootstrap", ".bootstrap", ".glob"):
+        # Purge temporary directories inside out/soong
+        for soong_stale in (".temp",):
             p = out_dir / "soong" / soong_stale
             if p.exists():
                 shutil.rmtree(p, ignore_errors=True)
