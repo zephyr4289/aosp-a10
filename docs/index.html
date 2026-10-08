@@ -1,835 +1,390 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>AOSP Build Dashboard · QASSA 2.4 (PL2)</title>
-  <style>
-    :root {
-      --bg: #0b0f19;
-      --card-bg: #111827;
-      --card-border: #1f2937;
-      --accent: #38bdf8;
-      --accent-glow: rgba(56, 189, 248, 0.25);
-      --success: #10b981;
-      --success-glow: rgba(16, 185, 129, 0.2);
-      --warning: #f59e0b;
-      --error: #ef4444;
-      --text: #f3f4f6;
-      --text-muted: #9ca3af;
-      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      background-color: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      min-height: 100vh;
-      padding: 12px;
-      line-height: 1.4;
-    }
-
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    /* Header */
-    .header-card {
-      background: linear-gradient(135deg, #111827 0%, #1e1b4b 100%);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 16px;
-      position: relative;
-      overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-    }
-
-    .header-card::before {
-      content: "";
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: linear-gradient(90deg, #38bdf8, #818cf8, #c084fc);
-    }
-
-    .header-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .title-group h1 {
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: #fff;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .badge {
-      font-size: 0.7rem;
-      font-family: var(--font-mono);
-      padding: 2px 8px;
-      border-radius: 9999px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      font-weight: 600;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .badge-running {
-      background: rgba(56, 189, 248, 0.15);
-      color: #38bdf8;
-      border: 1px solid rgba(56, 189, 248, 0.4);
-    }
-
-    .badge-success {
-      background: rgba(16, 185, 129, 0.15);
-      color: #10b981;
-      border: 1px solid rgba(16, 185, 129, 0.4);
-    }
-
-    .badge-idle {
-      background: rgba(156, 163, 175, 0.15);
-      color: #9ca3af;
-      border: 1px solid rgba(156, 163, 175, 0.4);
-    }
-
-    .pulse-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background-color: currentColor;
-      animation: pulse 1.5s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.8); }
-    }
-
-    .meta-sub {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      margin-top: 4px;
-      font-family: var(--font-mono);
-    }
-
-    /* Stats Grid */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 10px;
-    }
-
-    .stat-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 10px;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .stat-label {
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      letter-spacing: 0.05em;
-      font-weight: 600;
-    }
-
-    .stat-val {
-      font-size: 1.25rem;
-      font-family: var(--font-mono);
-      font-weight: 700;
-      color: #fff;
-    }
-
-    .stat-sub {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      font-family: var(--font-mono);
-    }
-
-    /* Progress & Slice Meter */
-    .meter-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 10px;
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .meter-header {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.82rem;
-      font-family: var(--font-mono);
-    }
-
-    .progress-bar-container {
-      width: 100%;
-      height: 12px;
-      background: #1f2937;
-      border-radius: 999px;
-      overflow: hidden;
-      position: relative;
-      border: 1px solid #374151;
-    }
-
-    .progress-bar-fill {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #38bdf8, #818cf8);
-      border-radius: 999px;
-      transition: width 0.5s ease;
-      position: relative;
-    }
-
-    .progress-bar-fill.active {
-      background-size: 30px 30px;
-      background-image: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.15) 25%,
-        transparent 25%,
-        transparent 50%,
-        rgba(255, 255, 255, 0.15) 50%,
-        rgba(255, 255, 255, 0.15) 75%,
-        transparent 75%,
-        transparent
-      );
-      animation: barberpole 2s linear infinite;
-    }
-
-    @keyframes barberpole {
-      0% { background-position: 0 0; }
-      100% { background-position: 60px 0; }
-    }
-
-    /* Pipeline Stages */
-    .stages-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 10px;
-      padding: 14px;
-    }
-
-    .section-title {
-      font-size: 0.85rem;
-      font-weight: 700;
-      color: #e5e7eb;
-      margin-bottom: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .stage-list {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .stage-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 10px;
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 6px;
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-    }
-
-    .stage-item.in_progress {
-      background: rgba(56, 189, 248, 0.08);
-      border-color: rgba(56, 189, 248, 0.3);
-      box-shadow: 0 0 10px rgba(56, 189, 248, 0.1);
-    }
-
-    .stage-item.completed {
-      border-color: rgba(16, 185, 129, 0.2);
-    }
-
-    .stage-left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .stage-icon {
-      width: 18px;
-      text-align: center;
-      font-weight: bold;
-    }
-
-    .stage-item.completed .stage-icon { color: var(--success); }
-    .stage-item.in_progress .stage-icon { color: var(--accent); animation: spin 2s linear infinite; }
-    .stage-item.queued .stage-icon { color: var(--text-muted); }
-    .stage-item.failed .stage-icon { color: var(--error); }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
-    .stage-time {
-      font-size: 0.72rem;
-      color: var(--text-muted);
-    }
-
-    /* Releases & Assets Card */
-    .releases-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 10px;
-      padding: 14px;
-    }
-
-    .releases-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 8px;
-    }
-
-    .release-box {
-      padding: 10px;
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 6px;
-      font-family: var(--font-mono);
-      font-size: 0.78rem;
-    }
-
-    .release-tag {
-      font-weight: 700;
-      color: #fff;
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 4px;
-    }
-
-    /* Settings & Controls */
-    .controls-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 10px;
-      padding: 12px;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      font-size: 0.75rem;
-      font-family: var(--font-mono);
-      color: var(--text-muted);
-    }
-
-    .api-quota-box {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .btn {
-      background: #1f2937;
-      color: var(--text);
-      border: 1px solid #374151;
-      border-radius: 6px;
-      padding: 6px 12px;
-      font-family: var(--font-mono);
-      font-size: 0.75rem;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .btn:hover {
-      background: #374151;
-    }
-
-    .token-input {
-      background: #0b0f19;
-      border: 1px solid #374151;
-      color: #fff;
-      padding: 5px 8px;
-      border-radius: 6px;
-      font-family: var(--font-mono);
-      font-size: 0.75rem;
-      width: 140px;
-    }
-
-    .token-input:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ROMForge — Deterministic Zero-Staging AOSP Forge · ₹0 on GitHub Actions</title>
+<meta name="description" content="ROMForge: deterministic, zero-staging distributed AOSP compilation engine on ephemeral GitHub Actions compute. Android 10→17, 14-point anti-brick gate, exact-resume ninja relay, silicon mining. ₹0." />
+<style>
+:root{
+  --bg:#08090d; --bg2:#0d0f16; --card:#12141d; --card2:#171a26;
+  --line:#232839; --line2:#2e3550;
+  --ember:#ff5a00; --molten:#ffb300; --molten2:#ff8a00;
+  --steel:#a1a1aa; --text:#f4f4f5; --muted:#9ca3af; --dim:#6b7280;
+  --cyan:#38bdf8; --green:#10b981; --red:#ef4444; --amber:#f59e0b;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:radial-gradient(1200px 600px at 50% -10%,#1a1208 0%,var(--bg) 55%) fixed,var(--bg);color:var(--text);font-family:var(--sans);line-height:1.5;overflow-x:hidden}
+::selection{background:rgba(255,90,0,.4)}
+a{color:var(--cyan);text-decoration:none}a:hover{text-decoration:underline}
+.wrap{max-width:1120px;margin:0 auto;padding:0 18px}
+/* NAV */
+nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:rgba(8,9,13,.78);border-bottom:1px solid var(--line)}
+.nav-in{max-width:1120px;margin:0 auto;padding:10px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.02em}
+.logo-mark{width:30px;height:30px;border-radius:8px;background:conic-gradient(from 20deg,#ff5a00,#ffb300,#ff3d00,#ffb300,#ff5a00);box-shadow:0 0 18px rgba(255,90,0,.55);display:grid;place-items:center;color:#000;font-family:var(--mono);font-weight:900}
+.nav-links{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:.78rem;color:var(--muted)}
+.nav-links a{color:var(--muted)}.nav-links a:hover{color:var(--molten)}
+.nav-right{margin-left:auto;display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:.75rem}
+.pill{border:1px solid var(--line2);border-radius:999px;padding:4px 10px;color:var(--muted);background:rgba(255,255,255,.02)}
+.pill.hot{border-color:rgba(255,90,0,.5);color:var(--molten);background:rgba(255,90,0,.08)}
+.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,90,0,.5);background:linear-gradient(180deg,#ff6a00,#c2410c);color:#fff;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--text);border-color:var(--line2)}
+.btn:hover{filter:brightness(1.08)} .btn.ghost:hover{border-color:var(--ember)}
+/* HERO */
+header.hero{position:relative;border-bottom:1px solid var(--line);overflow:hidden}
+#gl-hero{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hero-fallback{position:absolute;inset:0;background:radial-gradient(700px 380px at 70% 30%,rgba(255,90,0,.35),transparent 60%),radial-gradient(500px 300px at 20% 80%,rgba(255,179,0,.15),transparent 60%);display:none}
+.hero-in{position:relative;max-width:1120px;margin:0 auto;padding:72px 18px 40px;display:grid;grid-template-columns:1.15fr .85fr;gap:26px}
+.kicker{font-family:var(--mono);font-size:.75rem;letter-spacing:.18em;color:var(--molten);text-transform:uppercase}
+h1{font-size:clamp(2rem,4.6vw,3.4rem);line-height:1.02;letter-spacing:-.02em;margin:10px 0 12px}
+h1 .ember{background:linear-gradient(90deg,#ffb300,#ff5a00,#ff3d00);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{color:#d4d4d8;max-width:60ch}
+.hero-cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.counters{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:22px}
+.counter{background:rgba(10,10,14,.72);border:1px solid var(--line);border-radius:12px;padding:12px;backdrop-filter:blur(6px)}
+.counter b{display:block;font-family:var(--mono);font-size:1.35rem;color:#fff}
+.counter span{font-family:var(--mono);font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.hud{background:rgba(10,10,14,.72);border:1px solid var(--line);border-radius:14px;padding:14px;backdrop-filter:blur(8px);font-family:var(--mono);font-size:.8rem}
+.hud h3{font-size:.75rem;letter-spacing:.14em;color:var(--molten);margin-bottom:8px}
+.hud .row{display:flex;justify-content:space-between;padding:5px 0;border-top:1px dashed rgba(255,255,255,.08)}
+.hud .row:first-of-type{border-top:0}
+.scroll-hint{text-align:center;color:var(--dim);font-family:var(--mono);font-size:.75rem;padding:14px}
+/* MARQUEE */
+.marquee{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#0a0c12;overflow:hidden;white-space:nowrap}
+.marquee div{display:inline-block;padding:10px 0;animation:scroll 28s linear infinite;font-family:var(--mono);font-size:.8rem;color:var(--muted)}
+@keyframes scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.marquee b{color:var(--molten)}
+/* SECTIONS */
+section{padding:56px 0;border-bottom:1px solid var(--line)}
+.sec-kicker{font-family:var(--mono);font-size:.72rem;letter-spacing:.2em;color:var(--ember);text-transform:uppercase}
+h2{font-size:clamp(1.5rem,3vw,2.2rem);letter-spacing:-.02em;margin:8px 0 10px}
+.sub{color:var(--muted);max-width:78ch}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
+@media(max-width:900px){.hero-in{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}.counters{grid-template-columns:repeat(2,1fr)}}
+.card{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:14px;padding:16px}
+.card h3{font-size:1rem;margin-bottom:6px}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)} .dim{color:var(--dim)}
+canvas.gl{width:100%;height:340px;display:block;border-radius:14px;border:1px solid var(--line);background:#05060a}
+.poster{display:none;border-radius:14px;border:1px solid var(--line);padding:22px;background:radial-gradient(400px 200px at 50% 20%,rgba(255,90,0,.25),transparent 70%),#0a0c12;font-family:var(--mono);font-size:.8rem;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:.78rem;margin-top:12px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--molten);text-transform:uppercase;font-size:.68rem;letter-spacing:.08em}
+code{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-family:var(--mono);font-size:.8em}
+/* DAG */
+.dag{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;font-family:var(--mono);font-size:.75rem}
+.node{border:1px solid var(--line2);border-radius:10px;padding:8px 10px;background:#0d1018}
+.node.hot{border-color:rgba(255,90,0,.6);box-shadow:0 0 14px rgba(255,90,0,.25);color:#ffd9a8}
+.arrow{color:var(--dim);align-self:center}
+/* DEVICES / ROMS */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:18px}
+.dev{perspective:900px}
+.dev-in{background:linear-gradient(180deg,#181b28,#10131c);border:1px solid var(--line);border-radius:14px;padding:16px;transition:transform .25s,box-shadow .25s;transform-style:preserve-3d}
+.dev:hover .dev-in{box-shadow:0 12px 40px rgba(255,90,0,.18)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.chip{font-family:var(--mono);font-size:.7rem;border:1px solid var(--line2);border-radius:999px;padding:2px 8px;color:var(--muted)}
+.bar{height:8px;background:#1f2433;border-radius:999px;overflow:hidden;margin:4px 0 8px}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--ember),var(--molten))}
+/* GATE */
+.gate{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:16px}
+.shield{border:1px solid var(--line);border-radius:12px;padding:12px;background:#0d1018;font-family:var(--mono);font-size:.75rem;transition:.2s}
+.shield b{display:block;font-size:.85rem}
+.shield.ok{border-color:rgba(16,185,129,.4)} .shield.ok b{color:var(--green)}
+.shield.fail{border-color:rgba(239,68,68,.6);background:rgba(239,68,68,.08)} .shield.fail b{color:var(--red)}
+.poison-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.poison-row button{border:1px solid var(--line2);background:#0d1018;color:var(--text);border-radius:999px;padding:6px 12px;font-family:var(--mono);font-size:.75rem;cursor:pointer}
+.poison-row button.on{border-color:var(--red);color:#ffb4b4;background:rgba(239,68,68,.12)}
+/* SLIDER */
+input[type=range]{width:100%;accent-color:var(--ember)}
+.wallbars{display:grid;gap:8px;margin-top:12px;font-family:var(--mono);font-size:.78rem}
+.wallbars .wrow{display:grid;grid-template-columns:170px 1fr 90px;gap:10px;align-items:center}
+.wtrack{height:12px;background:#1c2130;border-radius:999px;overflow:hidden}
+.wtrack i{display:block;height:100%;background:linear-gradient(90deg,#ff5a00,#ffb300)}
+/* TIMELINE */
+.tl{margin-top:16px;border-left:2px solid var(--line2);padding-left:16px;display:grid;gap:12px}
+.tl div b{color:var(--molten)}
+footer{padding:40px 0 60px;color:var(--muted)}
+.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:16px}
+.progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--ember),var(--molten));width:0;z-index:99}
+.skip{position:absolute;left:-999px}.skip:focus{left:8px;top:8px;background:#000;color:#fff;padding:8px;z-index:99}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.marquee div{animation:none}}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
 </head>
 <body>
-  <div class="container">
-    <!-- Header -->
-    <div class="header-card">
-      <div class="header-top">
-        <div class="title-group">
-          <h1>
-            <span>QASSA 2.4 · Nokia 6.1 (PL2)</span>
-          </h1>
-          <div class="meta-sub">
-            Target: <span style="color:#fff;">qassa_PL2-userdebug</span> (bacon) · Repo: <span style="color:var(--accent);">zephyr4289/aosp-a10</span>
-          </div>
-        </div>
-        <div id="overall-badge" class="badge badge-idle">
-          <span class="pulse-dot"></span>
-          <span id="badge-text">CHECKING...</span>
-        </div>
-      </div>
+<a class="skip" href="#main">Skip to content</a>
+<div class="progress" id="progress"></div>
+<nav><div class="nav-in">
+  <div class="logo"><span class="logo-mark">Rf</span><span>ROMForge</span></div>
+  <div class="nav-links">
+    <a href="#pipeline">Pipeline</a><a href="#storage">Storage</a><a href="#devices">Devices</a><a href="#gate">Safety</a><a href="#mining">Mining</a><a href="#perf">Perf</a><a href="#proof">Proof</a><a href="#docs">Docs</a>
+  </div>
+  <div class="nav-right"><span class="pill hot">₹0 / $0 free-tier</span><span class="pill">A10 → A17</span></div>
+</div></nav>
+
+<header class="hero">
+  <canvas id="gl-hero" aria-label="Molten forge core with orbiting partition shards"></canvas>
+  <div class="hero-fallback" id="hero-fallback"></div>
+  <div class="hero-in"><div>
+    <div class="kicker">Deterministic · Zero-Staging · Distributed AOSP Forge</div>
+    <h1>Build any Android ROM at <span class="ember">₹0</span> on ephemeral runners — and <span class="ember">cannot brick</span> the phone.</h1>
+    <p class="lede">ROMForge compiles production AOSP images (Android 10 → 17) inside standard GitHub Actions runners (4 vCPU / 16 GiB / 6-hour ceiling) with exact-resume ninja relay, streaming 1.9 GiB chunks, btrfs-compressed volumes, turbo partition fan-out, Zen5 silicon mining, and a 14-point anti-brick gate.</p>
+    <div class="hero-cta">
+      <a class="btn" href="#pipeline">See how it forges →</a>
+      <a class="btn ghost" href="#docs">Add your ROM in 25 lines</a>
+      <a class="btn ghost" href="dashboard.html">Live dashboard</a>
     </div>
-
-    <!-- Stats Grid -->
-    <div class="stats-grid">
-      <!-- Total Elapsed Time (across all slices/campaign) -->
-      <div class="stat-card">
-        <div class="stat-label">Total Campaign Elapsed</div>
-        <div id="total-elapsed" class="stat-val">00:00:00</div>
-        <div id="campaign-start-sub" class="stat-sub">From initial dispatch</div>
-      </div>
-
-      <!-- Current Slice Elapsed & Countdown -->
-      <div class="stat-card">
-        <div class="stat-label">Active Slice Elapsed</div>
-        <div id="slice-elapsed" class="stat-val">00:00:00</div>
-        <div id="slice-remaining-sub" class="stat-sub">Budget: 160 min (02:40:00)</div>
-      </div>
-
-      <!-- Current Step / Status -->
-      <div class="stat-card">
-        <div class="stat-label">Active Step Duration</div>
-        <div id="step-elapsed" class="stat-val">00:00:00</div>
-        <div id="step-name-sub" class="stat-sub">Waiting for run...</div>
-      </div>
-
-      <!-- Slices Count & Run ID -->
-      <div class="stat-card">
-        <div class="stat-label">Workflow Run</div>
-        <div id="run-number" class="stat-val">#--</div>
-        <div id="run-id-sub" class="stat-sub">No active run</div>
-      </div>
-    </div>
-
-    <!-- Active Slice Watchdog Meter -->
-    <div class="meter-card">
-      <div class="meter-header">
-        <span id="meter-title">Slice 1 Watchdog Budget (160 min)</span>
-        <span id="meter-percent" style="color:var(--accent); font-weight:700;">0.0%</span>
-      </div>
-      <div class="progress-bar-container">
-        <div id="slice-progress-bar" class="progress-bar-fill"></div>
-      </div>
-      <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted); font-family:var(--font-mono);">
-        <span id="meter-elapsed-txt">Elapsed: 00:00:00</span>
-        <span id="meter-remaining-txt">Remaining: 02:40:00</span>
-      </div>
-    </div>
-
-    <!-- Pipeline Stages -->
-    <div class="stages-card">
-      <div class="section-title">
-        <span>PIPELINE EXECUTION STAGES</span>
-        <span id="pipeline-status-text" style="font-size:0.75rem; font-family:var(--font-mono); color:var(--text-muted);">Idle</span>
-      </div>
-      <div id="stages-container" class="stage-list">
-        <!-- Injected dynamically -->
-      </div>
-    </div>
-
-    <!-- Releases & Storage Tracker -->
-    <div class="releases-card">
-      <div class="section-title">
-        <span>RELEASE STORAGE & ARTIFACTS</span>
-        <span id="releases-last-check" style="font-size:0.72rem; font-family:var(--font-mono); color:var(--text-muted);">Checking...</span>
-      </div>
-      <div class="releases-grid">
-        <div class="release-box" id="rel-source-cache">
-          <div class="release-tag">
-            <span>📦 source-cache</span>
-            <span id="rel-source-status" style="color:var(--text-muted);">Checking...</span>
-          </div>
-          <div id="rel-source-desc" style="color:var(--text-muted);">Synced AOSP 10 source snapshot</div>
-        </div>
-
-        <div class="release-box" id="rel-ccache-cache">
-          <div class="release-tag">
-            <span>⚡ ccache-cache</span>
-            <span id="rel-ccache-status" style="color:var(--text-muted);">Checking...</span>
-          </div>
-          <div id="rel-ccache-desc" style="color:var(--text-muted);">Chained compilation cache</div>
-        </div>
-
-        <div class="release-box" id="rel-rom">
-          <div class="release-tag">
-            <span>🎉 ROM Release</span>
-            <span id="rel-rom-status" style="color:var(--text-muted);">Checking...</span>
-          </div>
-          <div id="rel-rom-desc" style="color:var(--text-muted);">Flashable QASSA zip + SHA256</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Controls & Rate Limit Guard -->
-    <div class="controls-card">
-      <div class="api-quota-box">
-        <span>API Rate Limit: <strong id="api-remaining" style="color:#fff;">60</strong>/<span id="api-limit">60</span></span>
-        <span id="api-reset-txt" style="color:var(--text-muted);">(resets in --m)</span>
-      </div>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <input type="password" id="gh-token-input" class="token-input" placeholder="Optional GitHub PAT" title="Optional: Paste a GitHub token for 5,000 req/hr rate limit" />
-        <button id="save-token-btn" class="btn">Save Token</button>
-        <button id="refresh-btn" class="btn">↻ Refresh</button>
-      </div>
+    <div class="counters">
+      <div class="counter"><b data-count="93">0</b><span>offline assertions green</span></div>
+      <div class="counter"><b>14/14</b><span>anti-brick gate</span></div>
+      <div class="counter"><b data-count="5" data-suffix="h">0</b><span>cold A10 wall w/ turbo</span></div>
+      <div class="counter"><b>₹0</b><span>infra cost, public repo</span></div>
     </div>
   </div>
+  <aside class="hud" aria-label="Campaign HUD">
+    <h3>CAMPAIGN HUD · A17 SHIBA</h3>
+    <div class="row"><span>source</span><span>75 GB → src-&lt;mhash&gt;</span></div>
+    <div class="row"><span>compute</span><span>32h @4vCPU → sliced</span></div>
+    <div class="row"><span>slice</span><span>275m / 350m job</span></div>
+    <div class="row"><span>relay tax</span><span>20–30m · &lt;10% flat</span></div>
+    <div class="row"><span>chunk</span><span>1.90 GiB &lt; 2.00 cap</span></div>
+    <div class="row"><span>volume</span><span>75G → 35–45G zstd:1</span></div>
+    <div class="row"><span>silicon</span><span>Zen5 100 · 1.6× Zen3</span></div>
+    <div class="row"><span>phase</span><span>slice → verify → publish</span></div>
+  </aside></div>
+  <div class="scroll-hint">scroll to enter the forge ↓</div>
+</header>
 
-  <script>
-    // Configuration
-    const REPO_OWNER = "zephyr4289";
-    const REPO_NAME = "aosp-a10";
-    const SLICE_BUDGET_SECONDS = 9600; // 160 minutes
+<div class="marquee"><div>&nbsp;<b>T = W + k·O(1) flat</b> — not W + ΣP(k) ··· <b>out/ + .ninja_log + mtimes</b> exact-resume ··· <b>tar → zstd -T0 → split -b 1900M --filter 'gh release upload'</b> zero-staging ··· <b>btrfs zstd:1 75G → 35–45G</b> ··· <b>Zen5 Turin 100</b> mines the fleet ··· <b>14-point gate</b> blocks bricks ··· <b>₹0</b> public repo ···&nbsp;</div></div>
 
-    // Known Pipeline Steps in order
-    const STAGE_DEFINITIONS = [
-      { id: "gate", name: "00. Gate Check (already built?)", key: "Gate" },
-      { id: "prepare", name: "00. Prepare Runner (disk & swap)", key: "00 - Prepare" },
-      { id: "restore", name: "05. Restore Caches (source & ccache)", key: "05 - Restore" },
-      { id: "sync", name: "01. Sync Source (QASSA + PL2)", key: "01 - Sync" },
-      { id: "patch", name: "02. Apply Patches & Validate Lunch", key: "02 - Apply" },
-      { id: "build", name: "03. Build Slice (160 min watchdog)", key: "03 - Build" },
-      { id: "publish", name: "06. Publish ROM (if completed)", key: "06 - Publish" },
-      { id: "upload_ccache", name: "04. Persist Ccache to Release", key: "Persist ccache" },
-      { id: "upload_src", name: "04. Persist Source Cache", key: "Persist source" }
-    ];
+<main id="main"><div class="wrap">
 
-    // State Variables
-    let currentRun = null;
-    let currentJob = null;
-    let allRuns = [];
-    let campaignStartTime = null;
-    let pollInterval = 20000; // 20s poll to never burn 60 req/hr rate limit
-    let lastPollTime = 0;
-    let isFetching = false;
+<section id="pipeline">
+  <div class="sec-kicker">01 · Pipeline river</div>
+  <h2>One run = one campaign. Six-hour jobs, 35-day chain.</h2>
+  <p class="sub">Plan computes the contract and <code>mhash</code>. Sync banks immutable <code>src-&lt;mhash&gt;</code> once. Turbo prewarms partitions in parallel while slot-1 drives the system graph. Slots relay exact ninja state. Postcheck reads <code>INDEX.json</code> — never guesses. Conveyor re-dispatches on <code>slice</code>, verifies on <code>done</code>, goes RED on <code>capacity/error</code>.</p>
+  <canvas class="gl" id="gl-river" aria-label="Pipeline nodes with flowing pulses"></canvas>
+  <div class="poster" data-for="gl-river">plan → sync → turbo×3 ∥ slot-1..6 → postcheck → verify | conveyor | RED → publish (zip + SHA256SUMS + flash-guarded.sh + SAFETY_REPORT + boot/dtbo/vbmeta)</div>
+  <div class="dag mono">
+    <span class="node hot">plan &amp; validate</span><span class="arrow">→</span><span class="node">sync src-&lt;mhash&gt;</span><span class="arrow">→</span><span class="node">turbo boot/vendor/product</span><span class="arrow">∥</span><span class="node hot">slot-1..6 exact-resume</span><span class="arrow">→</span><span class="node">postcheck INDEX→phase</span><span class="arrow">→</span><span class="node hot">verify 14-pt</span><span class="arrow">/</span><span class="node">conveyor slice</span><span class="arrow">/</span><span class="node">RED fail</span>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Relay math (why no linear redo)</h3><p class="muted mono">ccache-only: T = W + ΣP(k) — soong 15–25m + Java/Kotlin + dex re-run every slice.<br/>out/ relay: T = W + k·O(1) — restore 3–8m + unpack 5–10m + bank 10–15m. Flat in k.</p></div>
+    <div class="card"><h3>Zero-staging chunker</h3><p class="muted mono">tar out/ → zstd -T0 -3 → split -b 1900M --filter 'gh release upload'. Zero local parts. SHA256SUMS per part. 2 GiB asset ceiling respected.</p></div>
+  </div>
+</section>
 
-    // Load Token if stored
-    const tokenInput = document.getElementById("gh-token-input");
-    const savedToken = localStorage.getItem("gh_pat");
-    if (savedToken) {
-      tokenInput.value = savedToken;
-      pollInterval = 10000; // Faster poll allowed with token
-    }
+<section id="storage">
+  <div class="sec-kicker">02 · Compressed steel volume</div>
+  <h2>75 GiB logical on 65 GiB physical — the deadlock that killed #30/#34–36.</h2>
+  <p class="sub">Source (~35G) + warm <code>out/</code> (~40G) never fit <code>/mnt</code>. Storage v2 mounts everything on a hard-capped sparse btrfs loop (<code>compress=zstd:1,noatime</code>). Text compresses 2.2–3×, objects 1.4–1.8×. 15–25 GiB stay free. <code>fstrim</code> returns holes. Any provisioning failure degrades to plain layout — never aborts. Pre-bank cleanup can never delete source in volume mode.</p>
+  <canvas class="gl" id="gl-volume" aria-label="Outer logical block compressing to inner physical block"></canvas>
+  <div class="poster" data-for="gl-volume">logical 75G → physical 35–45G · cap = free − 10G reserve · fstrim reclaims</div>
+  <table><tr><th>surface</th><th>thresholds</th><th>response</th></tr>
+  <tr><td>/ (daemon)</td><td>&lt;1.5G purge → &lt;0.8G stop</td><td>safe caches only, then early bank (root-disk → sliced)</td></tr>
+  <tr><td>backing (physical)</td><td>&lt;4G warn → &lt;2G stop</td><td>fstrim + reclaim ladder</td></tr>
+  <tr><td>volume (logical)</td><td>ladder at min_free+4 → &lt;2G stop</td><td>ladder, then capacity (DAG refuses re-dispatch)</td></tr></table>
+</section>
 
-    document.getElementById("save-token-btn").addEventListener("click", () => {
-      const val = tokenInput.value.trim();
-      if (val) {
-        localStorage.setItem("gh_pat", val);
-        alert("GitHub Token saved! Rate limit raised to 5,000 req/hr.");
-        pollInterval = 10000;
-      } else {
-        localStorage.removeItem("gh_pat");
-        alert("Token cleared.");
-        pollInterval = 20000;
-      }
-      fetchData();
-    });
+<section id="cage">
+  <div class="sec-kicker">03 · Constraint cage</div>
+  <h2>Free runners are tiny. The forge is built for exactly that.</h2>
+  <p class="sub">4 vCPU · 16 GiB RAM · 6-hour job wall · 14–25 GiB <code>/</code> · 65–75 GiB <code>/mnt</code> · 20 concurrent jobs · 2 GiB/asset. Scroll — the cage cracks into a 35-day campaign.</p>
+  <canvas class="gl" id="gl-cage" aria-label="Steel cage bars cracking open on scroll"></canvas>
+  <div class="poster" data-for="gl-cage">6h job ceiling → 35-day workflow ceiling · 275m slice in 350m job · 24 slices max</div>
+</section>
 
-    document.getElementById("refresh-btn").addEventListener("click", () => {
-      fetchData();
-    });
+<section id="devices">
+  <div class="sec-kicker">04 · Devices — safety is per-hardware</div>
+  <h2>Three profiles. One gate. Zero crossflash.</h2>
+  <div class="cards">
+    <div class="dev"><div class="dev-in" data-tilt>
+      <span class="pill hot">HERO · Nokia 6.1 (PL2)</span>
+      <h3 style="margin-top:8px">nokia_pl2 · SDM660 · 4.19</h3>
+      <div class="chips"><span class="chip">PL2</span><span class="chip">PL2_sprout</span><span class="chip">Plate2</span><span class="chip">A/B</span><span class="chip">static</span><span class="chip">boot v1</span><span class="chip">dtbo req</span></div>
+      <div class="mono muted" style="font-size:.75rem">system 3.0G</div><div class="bar"><i style="width:82%"></i></div>
+      <div class="mono muted" style="font-size:.75rem">vendor 0.75G</div><div class="bar"><i style="width:34%"></i></div>
+      <div class="mono muted" style="font-size:.75rem">product 0.5G</div><div class="bar"><i style="width:24%"></i></div>
+      <div class="mono dim" style="font-size:.72rem">SPL 2020-09-05 → 2023-06-05 · AVB off · VNDK off</div>
+    </div></div>
+    <div class="dev"><div class="dev-in" data-tilt>
+      <span class="pill">Pixel 8 · google_shiba</span>
+      <h3 style="margin-top:8px">Tensor G3 (zuma) · 5.15</h3>
+      <div class="chips"><span class="chip">shiba</span><span class="chip">V-A/B</span><span class="chip">dynamic super 8G</span><span class="chip">boot v4 GKI</span></div>
+      <div class="mono muted" style="font-size:.75rem">super 8.0G</div><div class="bar"><i style="width:88%"></i></div>
+      <div class="mono muted" style="font-size:.75rem">boot/init/vendor_boot 64M · dtbo 16M</div><div class="bar"><i style="width:18%"></i></div>
+      <div class="mono dim" style="font-size:.72rem">SPL 2023-10-01 → 2030-10-01</div>
+    </div></div>
+    <div class="dev"><div class="dev-in" data-tilt>
+      <span class="pill">POCO F6 · xiaomi_peridot</span>
+      <h3 style="margin-top:8px">SM8635 8s Gen3 · 6.1</h3>
+      <div class="chips"><span class="chip">peridot</span><span class="chip">V-A/B</span><span class="chip">dynamic super 9G</span><span class="chip">boot v4</span></div>
+      <div class="mono muted" style="font-size:.75rem">super 9.0G</div><div class="bar"><i style="width:92%"></i></div>
+      <div class="mono muted" style="font-size:.75rem">boot/vendor_boot 192M · dtbo 32M</div><div class="bar"><i style="width:26%"></i></div>
+      <div class="mono dim" style="font-size:.72rem">SPL 2024-05-01 → 2027-12-31</div>
+    </div></div>
+  </div>
+  <div class="cards">
+    <div class="card"><h3>QASSA 2.4 · A10 · PL2 (proven)</h3><p class="muted mono" style="font-size:.78rem">keepQASSA/manifest:Q · qassa_PL2-userdebug · target qassa · 4× Zoro-15 lineage-17.1 repos + 2 patches · WITH_DEXPREOPT=false · 6×275m · turbo boot/vendor/product</p></div>
+    <div class="card"><h3>Lineage 17.1 · A10 · PL2</h3><p class="muted mono" style="font-size:.78rem">LineageOS/android:lineage-17.1 · lineage_PL2-userdebug · bacon · same 4 repos · 4×275m</p></div>
+    <div class="card"><h3>Lineage 23.2 · A17 · shiba / peridot</h3><p class="muted mono" style="font-size:.78rem">lineage-23.2 · trunk_staging · bacon · 6 / 3 repos + hardware/xiaomi · 8×275m · turbo boot/vendor_boot/vendor/dtbo(+system_ext)</p></div>
+  </div>
+</section>
 
-    function getHeaders() {
-      const headers = { "Accept": "application/vnd.github.v3+json" };
-      const token = localStorage.getItem("gh_pat");
-      if (token) {
-        headers["Authorization"] = `token ${token}`;
-      }
-      return headers;
-    }
+<section id="gate">
+  <div class="sec-kicker">05 · Shield wall — 14-point anti-brick gate</div>
+  <h2>No PASS, no publish. The flash script re-verifies on your PC.</h2>
+  <p class="sub">Every release ships <code>SAFETY_REPORT.json + flash-guarded.sh + rescue boot/dtbo/vbmeta</code>. Try a poison — its shield cracks, verdict flips to FAIL, publish refuses.</p>
+  <div class="poison-row" id="poisons">
+    <button data-p="1">wrong device → #1</button>
+    <button data-p="3">oversize system → #3</button>
+    <button data-p="6">missing dtbo → #6</button>
+    <button data-p="8">future SPL → #8</button>
+    <button data-p="11">payload mismatch → #11</button>
+    <button data-p="0" class="on">nominal PASS</button>
+  </div>
+  <div class="gate" id="gate-grid"></div>
+  <p class="mono muted" style="margin-top:10px;font-size:.78rem" id="gate-verdict">verdict: PASS · 14/14 · publish allowed</p>
+</section>
 
-    // Format Seconds to HH:MM:SS
-    function formatDuration(totalSeconds) {
-      if (isNaN(totalSeconds) || totalSeconds < 0) totalSeconds = 0;
-      const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
-      const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
-      const s = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
-      return `${h}:${m}:${s}`;
-    }
+<section id="mining">
+  <div class="sec-kicker">06 · Silicon lottery — mine it, don't request it</div>
+  <h2>GitHub won't give you a CPU. Take the Zen5 anyway.</h2>
+  <p class="sub">8–20 identical candidates probe <code>/proc/cpuinfo</code> (~50ms). Target silicon atomically claims the slot lock (<code>gh release create</code> 422 / <code>mkdir</code>). Losers fast-discard in ~1 min (free). 240s scoreboard fallback so a slot never stalls. Strict Zen5-only by default — 1.55–1.65× Zen3.</p>
+  <canvas class="gl" id="gl-mine" aria-label="Silicon score bars"></canvas>
+  <div class="poster" data-for="gl-mine">Zen5-100 · Granite-80/95 · Genoa-80/85 · Milan-40 · P(≥1 target in 8)=82%, in 20=97%</div>
+  <table><tr><th>silicon</th><th>score</th><th>fleet</th></tr>
+  <tr><td>EPYC 9V45/9V44 Zen5 Turin 4.3–4.6G</td><td>100 +8 AVX512</td><td>14.05%</td></tr>
+  <tr><td>Xeon 6973P Granite Rapids 4.0–4.2G</td><td>95</td><td>3.20%</td></tr>
+  <tr><td>EPYC 9V74 Zen4c Genoa-X 3.7G</td><td>85</td><td>16.80%</td></tr>
+  <tr><td>EPYC 7763 Zen3 Milan 3.24G</td><td>40</td><td>55.15%</td></tr></table>
+</section>
 
-    // Live 1-Second Timer Tick (Interpolation)
-    function tick() {
-      const now = Date.now();
+<section id="perf">
+  <div class="sec-kicker">07 · Wall-clock — honest physics</div>
+  <h2>Under 6 hours where physics allows. Overnight, zero-redo, everywhere else.</h2>
+  <label class="mono muted" for="ver">Android version: <b id="ver-label" style="color:var(--molten)">17</b> · <span id="ver-detail">75G source · 32h cold @4vCPU · 8 slices · ubuntu-24.04</span></label>
+  <input type="range" id="ver" min="10" max="17" value="17" step="1" />
+  <div class="wallbars">
+    <div class="wrow"><span>A10 cold + turbo</span><div class="wtrack"><i style="width:32%"></i></div><span>5.5–6.5h</span></div>
+    <div class="wrow"><span>A10 warm rebuild</span><div class="wtrack"><i style="width:12%"></i></div><span>1.5–2.5h</span></div>
+    <div class="wrow"><span>A13/14 cold</span><div class="wtrack"><i style="width:52%"></i></div><span>8–11h</span></div>
+    <div class="wrow"><span>A15/16 cold</span><div class="wtrack"><i style="width:85%"></i></div><span>14–18h</span></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Why turbo can't brick</h3><p class="muted" style="font-size:.88rem">Stubs are acceleration only: system slice authoritative (<code>--ignore-existing</code>), final <code>m</code> relinks stale edges, gate runs on final images. Turbo failure costs time, never safety.</p></div>
+    <div class="card"><h3>Conveyor</h3><p class="muted" style="font-size:.88rem"><code>done→verify · sliced→slice (re-dispatch) · capacity/error/exhausted→RED</code>. <code>done</code> requires a real zip. Needs <code>FORGE_DISPATCH_TOKEN</code> for instant chain, else weekly cron resumes — never silent, never looping.</p></div>
+  </div>
+</section>
 
-      // 1. Total Campaign Elapsed Time
-      if (campaignStartTime) {
-        const totalSec = Math.floor((now - campaignStartTime) / 1000);
-        document.getElementById("total-elapsed").innerText = formatDuration(totalSec);
-      } else {
-        document.getElementById("total-elapsed").innerText = "00:00:00";
-      }
+<section id="proof">
+  <div class="sec-kicker">08 · Proof — stress-tested, not promised</div>
+  <h2>93 assertions green. 12 chaos engines. 30 seconds local.</h2>
+  <div class="cards">
+    <div class="card"><h3>Offline suite · 93✓</h3><p class="muted mono" style="font-size:.78rem">chunker roundtrip+tamper · FsStore · relay forensics · gate GOOD 14/14 + 5 poisons FAIL · config · e2e bank→resume · storage cap · DAG table · engine taxonomy · mining roles</p></div>
+    <div class="card"><h3>Harness A–L</h3><p class="muted mono" style="font-size:.78rem">disk tmpfs · AST imports · watchdog chaos · store 500/503 · OOM swap · inodes · mtime clamp · 403/2GB · super sum · toolchain matrix · storage-v2 + DAG/mining YAML wiring</p></div>
+    <div class="card"><h3>Scars that shaped it</h3><p class="muted" style="font-size:.86rem"><b>Linear redo</b> (ccache-only) → relay · <b>ENOSPC@94%</b> → zero-staging · <b>Livelock #30/34-36</b> (75G on 65G + delete-source loop + premature verify) → volume + capacity + INDEX-authority · <b>Class-B eviction</b> → root purge · <b>Colab 9h→40%</b> → chaining.</p></div>
+  </div>
+  <div class="tl mono" style="font-size:.8rem">
+    <div><b>Run it:</b> ./forge doctor · ./forge validate · ./forge plan --rom qassa-a10 · bash tests/run_tests.sh</div>
+    <div><b>Add ROM:</b> copy configs/roms/_template.yaml → 25 lines → run workflow ROMForge — universal build</div>
+    <div><b>Add device:</b> dump getprop/fastboot/blockdev/lpdump → budgets_authority: stock → bootimage first → self-flash a day</div>
+  </div>
+</section>
 
-      // 2. Active Run / Slice Elapsed Time
-      if (currentRun && currentRun.status === "in_progress") {
-        const runStart = new Date(currentRun.run_started_at || currentRun.created_at).getTime();
-        const sliceSec = Math.max(0, Math.floor((now - runStart) / 1000));
-        document.getElementById("slice-elapsed").innerText = formatDuration(sliceSec);
+<section id="docs">
+  <div class="sec-kicker">09 · Docs galaxy — build yours</div>
+  <h2>Same engine, any ROM, A10 → A17.</h2>
+  <div class="foot-grid">
+    <div class="card"><h3>Start</h3><p class="mono" style="font-size:.8rem"><a href="https://github.com/zephyr4289/aosp-a10">repo</a> · <a href="dashboard.html">live dashboard (archived)</a><br/>ADD_ROM · ADD_DEVICE · SAFETY · TECHNICAL · OPTIMIZATION_PLAN<br/>configs/roms/_template.yaml · configs/versions.yaml</p></div>
+    <div class="card"><h3>CLI</h3><p class="mono muted" style="font-size:.8rem">forge doctor / validate / plan / prepare / sync / restore / patch / slice / merge / verify / publish / gc<br/>python3 -m forge_core.mine gate (stdlib-only, pre-pip)</p></div>
+    <div class="card"><h3>Safety contract</h3><p style="font-size:.86rem" class="muted">No unverified artifact reaches flash. Flash re-verifies device + SHA256 on your machine. Rescue images in every release. Read SAFETY.md — flashing carries residual risk.</p></div>
+  </div>
+</section>
 
-        // Slice Watchdog calculation (160 min budget = 9600s)
-        const budgetPercent = Math.min(100, (sliceSec / SLICE_BUDGET_SECONDS) * 100);
-        const remSec = Math.max(0, SLICE_BUDGET_SECONDS - sliceSec);
-        
-        const progressBar = document.getElementById("slice-progress-bar");
-        progressBar.style.width = `${budgetPercent.toFixed(1)}%`;
-        progressBar.classList.add("active");
-        
-        document.getElementById("meter-percent").innerText = `${budgetPercent.toFixed(1)}%`;
-        document.getElementById("meter-elapsed-txt").innerText = `Elapsed: ${formatDuration(sliceSec)}`;
-        document.getElementById("meter-remaining-txt").innerText = `Remaining: ${formatDuration(remSec)}`;
-      } else if (currentRun && currentRun.conclusion) {
-        const runStart = new Date(currentRun.run_started_at || currentRun.created_at).getTime();
-        const runEnd = new Date(currentRun.updated_at).getTime();
-        const totalSec = Math.max(0, Math.floor((runEnd - runStart) / 1000));
-        document.getElementById("slice-elapsed").innerText = formatDuration(totalSec);
-        document.getElementById("slice-progress-bar").classList.remove("active");
-      }
+</div></main>
+<footer><div class="wrap">
+  <div class="mono" style="font-size:.78rem">ROMForge · MIT · harness builds only pointed sources; ROM/kernel/vendor belong to upstream maintainers · <a href="dashboard.html">dashboard</a> · <a href="https://github.com/zephyr4289/aosp-a10">GitHub</a></div>
+</div></footer>
 
-      // 3. Active Step Elapsed Time
-      if (currentJob && currentJob.steps) {
-        const activeStep = currentJob.steps.find(s => s.status === "in_progress");
-        if (activeStep && activeStep.started_at) {
-          const stepStart = new Date(activeStep.started_at).getTime();
-          const stepSec = Math.max(0, Math.floor((now - stepStart) / 1000));
-          document.getElementById("step-elapsed").innerText = formatDuration(stepSec);
-          document.getElementById("step-name-sub").innerText = activeStep.name;
-        } else {
-          const lastCompleted = [...currentJob.steps].reverse().find(s => s.status === "completed");
-          if (lastCompleted) {
-            document.getElementById("step-name-sub").innerText = `Completed: ${lastCompleted.name}`;
-          }
-        }
-      }
-
-      // Check if it's time to poll API again
-      if (now - lastPollTime >= pollInterval && !isFetching) {
-        fetchData();
-      }
-    }
-
-    // Render Pipeline Stages UI
-    function renderStages(jobSteps) {
-      const container = document.getElementById("stages-container");
-      container.innerHTML = "";
-
-      STAGE_DEFINITIONS.forEach(def => {
-        let matchedStep = null;
-        if (jobSteps) {
-          matchedStep = jobSteps.find(s => s.name.toLowerCase().includes(def.key.toLowerCase()));
-        }
-
-        const div = document.createElement("div");
-        div.className = "stage-item";
-
-        let icon = "○";
-        let statusClass = "queued";
-        let timeTxt = "Pending";
-
-        if (matchedStep) {
-          if (matchedStep.status === "completed") {
-            if (matchedStep.conclusion === "success") {
-              icon = "✓";
-              statusClass = "completed";
-              if (matchedStep.started_at && matchedStep.completed_at) {
-                const s = Math.floor((new Date(matchedStep.completed_at) - new Date(matchedStep.started_at)) / 1000);
-                timeTxt = `Finished (${formatDuration(s)})`;
-              } else {
-                timeTxt = "Completed";
-              }
-            } else if (matchedStep.conclusion === "skipped") {
-              icon = "↷";
-              statusClass = "skipped";
-              timeTxt = "Skipped (Cached)";
-            } else {
-              icon = "✗";
-              statusClass = "failed";
-              timeTxt = "Failed";
-            }
-          } else if (matchedStep.status === "in_progress") {
-            icon = "⚡";
-            statusClass = "in_progress";
-            if (matchedStep.started_at) {
-              const s = Math.floor((Date.now() - new Date(matchedStep.started_at)) / 1000);
-              timeTxt = `Running (${formatDuration(s)})`;
-            } else {
-              timeTxt = "Running";
-            }
-          }
-        }
-
-        div.classList.add(statusClass);
-        div.innerHTML = `
-          <div class="stage-left">
-            <span class="stage-icon">${icon}</span>
-            <span>${def.name}</span>
-          </div>
-          <span class="stage-time">${timeTxt}</span>
-        `;
-        container.appendChild(div);
-      });
-    }
-
-    // Fetch Workflow Runs & Jobs
-    async function fetchData() {
-      if (isFetching) return;
-      isFetching = true;
-      lastPollTime = Date.now();
-
-      try {
-        const headers = getHeaders();
-        const runsResp = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/runs?per_page=10`, { headers });
-        
-        // Update rate limits
-        const rem = runsResp.headers.get("x-ratelimit-remaining");
-        const limit = runsResp.headers.get("x-ratelimit-limit");
-        const reset = runsResp.headers.get("x-ratelimit-reset");
-        if (rem) document.getElementById("api-remaining").innerText = rem;
-        if (limit) document.getElementById("api-limit").innerText = limit;
-        if (reset) {
-          const resetMinutes = Math.max(0, Math.ceil((new Date(reset * 1000) - new Date()) / 60000));
-          document.getElementById("api-reset-txt").innerText = `(resets in ${resetMinutes}m)`;
-        }
-
-        if (!runsResp.ok) throw new Error(`HTTP ${runsResp.status}`);
-        const runsData = await runsResp.json();
-        const rawRuns = runsData.workflow_runs || [];
-        
-        // Filter specifically for QASSA build runs (ignoring github pages deployment runs)
-        allRuns = rawRuns.filter(r => r.name.toLowerCase().includes("qassa") || (r.path && r.path.includes("build.yml")));
-
-        if (allRuns.length > 0) {
-          // Identify first bootstrap run timestamp to compute total campaign elapsed time
-          const earliestRun = allRuns[allRuns.length - 1];
-          campaignStartTime = new Date(earliestRun.created_at).getTime();
-          document.getElementById("campaign-start-sub").innerText = `Started ${new Date(campaignStartTime).toLocaleString()}`;
-
-          // Active run is the most recent
-          currentRun = allRuns[0];
-          document.getElementById("run-number").innerText = `#${currentRun.run_number}`;
-          document.getElementById("run-id-sub").innerText = `ID: ${currentRun.id}`;
-
-          const badge = document.getElementById("overall-badge");
-          const badgeText = document.getElementById("badge-text");
-
-          if (currentRun.status === "in_progress") {
-            badge.className = "badge badge-running";
-            badgeText.innerText = `RUNNING (SLICE #${allRuns.length})`;
-            document.getElementById("pipeline-status-text").innerText = `Slice #${allRuns.length} in progress`;
-          } else if (currentRun.status === "completed") {
-            if (currentRun.conclusion === "success") {
-              badge.className = "badge badge-success";
-              badgeText.innerText = "COMPLETED";
-              document.getElementById("pipeline-status-text").innerText = "Finished successfully";
-            } else {
-              badge.className = "badge badge-idle";
-              badgeText.innerText = currentRun.conclusion.toUpperCase();
-              document.getElementById("pipeline-status-text").innerText = `Ended with ${currentRun.conclusion}`;
-            }
-          }
-
-          // Fetch Job & Step details for current run
-          const jobsResp = await fetch(currentRun.jobs_url, { headers });
-          if (jobsResp.ok) {
-            const jobsData = await jobsResp.json();
-            if (jobsData.jobs && jobsData.jobs.length > 0) {
-              currentJob = jobsData.jobs[0];
-              renderStages(currentJob.steps);
-            }
-          }
-        } else {
-          document.getElementById("badge-text").innerText = "NO RUNS YET";
-          document.getElementById("pipeline-status-text").innerText = "Workflow has not run yet";
-          renderStages(null);
-        }
-
-        // Fetch Releases status
-        fetchReleases();
-      } catch (err) {
-        console.error("Fetch error:", err);
-      } finally {
-        isFetching = false;
-      }
-    }
-
-    // Fetch Releases Status
-    async function fetchReleases() {
-      try {
-        const headers = getHeaders();
-        const resp = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases`, { headers });
-        if (!resp.ok) return;
-        const releases = await resp.json();
-        document.getElementById("releases-last-check").innerText = `Checked at ${new Date().toLocaleTimeString()}`;
-
-        const sourceRel = releases.find(r => r.tag_name === "source-cache");
-        const ccacheRel = releases.find(r => r.tag_name === "ccache-cache");
-        const romRel = releases.find(r => r.tag_name === "rom");
-
-        if (sourceRel) {
-          const totalBytes = sourceRel.assets.reduce((sum, a) => sum + a.size, 0);
-          const mb = (totalBytes / (1024 * 1024)).toFixed(1);
-          document.getElementById("rel-source-status").innerHTML = `<span style="color:var(--success);">READY (${mb} MB)</span>`;
-        } else {
-          document.getElementById("rel-source-status").innerHTML = `<span style="color:var(--text-muted);">Not uploaded</span>`;
-        }
-
-        if (ccacheRel) {
-          const totalBytes = ccacheRel.assets.reduce((sum, a) => sum + a.size, 0);
-          const mb = (totalBytes / (1024 * 1024)).toFixed(1);
-          document.getElementById("rel-ccache-status").innerHTML = `<span style="color:var(--success);">READY (${mb} MB)</span>`;
-        } else {
-          document.getElementById("rel-ccache-status").innerHTML = `<span style="color:var(--text-muted);">Not uploaded</span>`;
-        }
-
-        if (romRel) {
-          const romAsset = romRel.assets.find(a => a.name.endsWith('.zip'));
-          const mb = romAsset ? (romAsset.size / (1024 * 1024)).toFixed(1) : "";
-          document.getElementById("rel-rom-status").innerHTML = `<span style="color:var(--success); font-weight:bold;">READY (${mb} MB)</span>`;
-        } else {
-          document.getElementById("rel-rom-status").innerHTML = `<span style="color:var(--text-muted);">Awaiting bacon</span>`;
-        }
-      } catch (e) {
-        console.error("Release fetch error:", e);
-      }
-    }
-
-    // Initial load and start 1-second clock
-    renderStages(null);
-    fetchData();
-    setInterval(tick, 1000);
-  </script>
+<script type="module">
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const progress = document.getElementById('progress');
+addEventListener('scroll',()=>{const h=document.documentElement;progress.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%';},{passive:true});
+// counters
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(!e.isIntersecting)return;const b=e.target,end=parseFloat(b.dataset.count||'0'),suf=b.dataset.suffix||'';if(!end||reduced)return;let t0=null;const step=t=>{if(!t0)t0=t;const p=Math.min(1,(t-t0)/1200);b.textContent=Math.round(end*(1-Math.pow(1-p,3)))+suf;if(p<1)requestAnimationFrame(step)};requestAnimationFrame(step);io.unobserve(b)}),{threshold:.4});
+document.querySelectorAll('[data-count]').forEach(b=>io.observe(b));
+// tilt
+document.querySelectorAll('[data-tilt]').forEach(el=>{el.addEventListener('pointermove',e=>{if(reduced)return;const r=el.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;el.style.transform=`rotateY(${x*10}deg) rotateX(${-y*10}deg)`});el.addEventListener('pointerleave',()=>el.style.transform='')});
+// gate
+const CHECKS=[[1,'identity','ro.product.device ∈ allow'],[2,'ota-assert','updater covers codenames'],[3,'budgets','img ≤ budget'],[4,'dynamic','super sum ≤ super'],[5,'AVB','flags coherent'],[6,'boot','ANDROID! + dtbo D7B7AB1E'],[7,'VINTF','checkvintf'],[8,'SPL','patch ∈ window'],[9,'VNDK','first_api ≤ sdk'],[10,'SELinux','enforcing .cil'],[11,'payload','bin == FILE_SIZE/HASH'],[12,'zip','A/B topology'],[13,'signature','META-INF, testkey WARN'],[14,'flash-plan','dry-run fits']];
+const grid=document.getElementById('gate-grid'),verdict=document.getElementById('gate-verdict');
+let poison=0;
+function renderGate(){grid.innerHTML='';CHECKS.forEach(([n,name,detail])=>{const d=document.createElement('div');const bad=poison===n;d.className='shield '+(bad?'fail':'ok');d.innerHTML=`<b>${bad?'✗':'✓'} ${String(n).padStart(2,'0')} ${name}</b><span class="dim">${bad?'POISONED — FAIL':'PASS'} · ${detail}</span>`;grid.appendChild(d)});verdict.textContent=poison===0?'verdict: PASS · 14/14 · publish allowed':`verdict: FAIL · check ${String(poison).padStart(2,'0')} blocks publish · fix tree, resume relay`;verdict.style.color=poison===0?'var(--green)':'var(--red)'}
+renderGate();
+document.getElementById('poisons').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;poison=parseInt(b.dataset.p,10);document.querySelectorAll('#poisons button').forEach(x=>x.classList.toggle('on',x===b));renderGate()});
+// version slider
+const VD={10:['35G source · 12h cold @4vCPU · 4 slices · ubuntu-22.04'],11:['40G · 14h · 4 · ubuntu-22.04'],12:['45G · 16h · 5 · ubuntu-22.04'],13:['55G · 20h · 6 · ubuntu-22.04'],14:['60G · 24h · 7 · ubuntu-24.04'],15:['65G · 28h · 8 · ubuntu-24.04'],16:['70G · 32h · 9 · ubuntu-24.04'],17:['75G · 32h · 8 · ubuntu-24.04 · Zen5 mining']};
+const ver=document.getElementById('ver'),vl=document.getElementById('ver-label'),vd=document.getElementById('ver-detail');
+ver.addEventListener('input',()=>{vl.textContent=ver.value;vd.textContent=VD[ver.value][0]});
+// ---- WebGL ----
+const posters={};document.querySelectorAll('.poster').forEach(p=>posters[p.dataset.for]=p);
+function showPoster(id){const c=document.getElementById(id);if(c)c.style.display='none';if(posters[id])posters[id].style.display='block'}
+if(reduced){['gl-hero','gl-river','gl-volume','gl-cage','gl-mine'].forEach(showPoster);document.getElementById('hero-fallback').style.display='block'}
+else{
+let THREE=null;
+try{THREE=await import('three')}catch(e){['gl-hero','gl-river','gl-volume','gl-cage','gl-mine'].forEach(showPoster);document.getElementById('hero-fallback').style.display='block'}
+if(THREE){
+const DPR=Math.min(devicePixelRatio||1,1.75);
+const scenes=[];
+function base(id){const c=document.getElementById(id);if(!c)return null;const r=new THREE.WebGLRenderer({canvas:c,antialias:true,alpha:true});r.setPixelRatio(DPR);const s=new THREE.Scene();s.fog=new THREE.FogExp2(0x08090d,.055);const cam=new THREE.PerspectiveCamera(50,2,.1,100);cam.position.set(0,1.4,7);function rs(){const w=c.clientWidth,h=c.clientHeight||340;r.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix()}rs();addEventListener('resize',rs);s.userData={r,cam,run:true};scenes.push(s);return s}
+function embers(s,n,spread){const g=new THREE.BufferGeometry(),pos=new Float32Array(n*3);for(let i=0;i<n;i++){pos[i*3]=(Math.random()-.5)*spread;pos[i*3+1]=Math.random()*6-2;pos[i*3+2]=(Math.random()-.5)*spread}g.setAttribute('position',new THREE.BufferAttribute(pos,3));const m=new THREE.PointsMaterial({color:0xff8a00,size:.035,transparent:true,opacity:.85});const p=new THREE.Points(g,m);s.add(p);return p}
+// HERO: molten torus + core + orbiting shards + embers
+{const s=base('gl-hero');if(s){s.userData.cam.position.set(0,1.2,7.5);
+const tor=new THREE.Mesh(new THREE.TorusGeometry(1.7,.42,24,90),new THREE.MeshStandardMaterial({color:0x331100,emissive:0xff5a00,emissiveIntensity:1.2,roughness:.35,metalness:.7}));s.add(tor);
+const core=new THREE.Mesh(new THREE.IcosahedronGeometry(.8,1),new THREE.MeshStandardMaterial({color:0xffb300,emissive:0xff8a00,emissiveIntensity:1.6,wireframe:true}));s.add(core);
+const shards=[];const cols=[0xffb300,0x38bdf8,0x10b981];
+for(let i=0;i<9;i++){const m=new THREE.Mesh(new THREE.BoxGeometry(.32,.22,.1),new THREE.MeshStandardMaterial({color:cols[i%3],roughness:.4,metalness:.6}));shards.push(m);s.add(m)}
+const eb=embers(s,320,9);
+s.add(new THREE.AmbientLight(0x604030,1.2));const pl=new THREE.PointLight(0xff6a00,60,30);pl.position.set(0,2,4);s.add(pl);
+const dl=new THREE.DirectionalLight(0x8899ff,1);dl.position.set(-4,4,6);s.add(dl);
+s.userData.tick=t=>{tor.rotation.x=t*.18;tor.rotation.y=t*.25;core.rotation.y=-t*.5;core.rotation.z=t*.3;shards.forEach((m,i)=>{const a=t*(.25+(i%3)*.12)+i*2.1,R=3+i%3*.7;m.position.set(Math.cos(a)*R,Math.sin(t*.7+i)*.8,Math.sin(a)*R-1);m.rotation.x=t+i;m.rotation.y=t*.8});eb.rotation.y=t*.05;eb.position.y=Math.sin(t*.4)*.2}}}
+// RIVER: nodes + flowing pulses
+{const s=base('gl-river');if(s){s.userData.cam.position.set(0,2.2,9);
+const mats=new THREE.MeshStandardMaterial({color:0x1a2030,roughness:.5,metalness:.4}),hot=new THREE.MeshStandardMaterial({color:0x3a1c05,emissive:0xff5a00,emissiveIntensity:1.1});
+const nodes=[];for(let i=0;i<7;i++){const m=new THREE.Mesh(new THREE.SphereGeometry(.32,20,16),i%3===0?hot:mats);m.position.set((i-3)*1.7,Math.sin(i*1.2)*.5,0);s.add(m);nodes.push(m);if(i){const g=new THREE.BufferGeometry().setFromPoints([nodes[i-1].position,nodes[i].position]);s.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:0xff5a00,transparent:true,opacity:.5})))}} 
+const pulses=[];for(let i=0;i<14;i++){const p=new THREE.Mesh(new THREE.SphereGeometry(.07,10,8),new THREE.MeshBasicMaterial({color:i%2?0xffb300:0x38bdf8}));p.userData={o:Math.random(),sp:.25+Math.random()*.3};s.add(p);pulses.push(p)}
+s.add(new THREE.AmbientLight(0xffffff,.7));const pl=new THREE.PointLight(0xff6a00,40,20);pl.position.set(0,4,4);s.add(pl);
+s.userData.tick=t=>{pulses.forEach(p=>{const x=((t*p.userData.sp+p.userData.o*6)%6)-3;p.position.set(x,Math.sin(x*1.2+t)*.5+.1,0)});nodes.forEach((n,i)=>n.position.y=Math.sin(t*1.4+i*1.2)*.5)}}}
+// VOLUME: logical wireframe -> physical solid
+{const s=base('gl-volume');if(s){const outer=new THREE.Mesh(new THREE.BoxGeometry(4.4,2.6,2.2),new THREE.MeshBasicMaterial({color:0x38bdf8,wireframe:true,transparent:true,opacity:.35}));s.add(outer);
+const inner=new THREE.Mesh(new THREE.BoxGeometry(2.4,1.6,1.5),new THREE.MeshStandardMaterial({color:0x2a1503,emissive:0xff5a00,emissiveIntensity:.9,roughness:.4,metalness:.5}));s.add(inner);
+s.add(new THREE.AmbientLight(0xffffff,.8));const pl=new THREE.PointLight(0xffb300,50,20);pl.position.set(2,3,4);s.add(pl);
+s.userData.tick=t=>{const k=1+Math.sin(t*1.2)*.05;inner.scale.set(k,1,1);outer.rotation.y=t*.2;inner.rotation.y=-t*.3}}}
+// CAGE: bars that crack on scroll
+{const s=base('gl-cage');if(s){const bars=[];const mat=new THREE.MeshStandardMaterial({color:0x8a8f9e,roughness:.4,metalness:.8});
+for(let i=0;i<12;i++){const b=new THREE.Mesh(new THREE.BoxGeometry(.14,3.4,.14),mat);const a=i/12*Math.PI*2;b.position.set(Math.cos(a)*2.4,0,Math.sin(a)*2.4);s.add(b);bars.push({m:b,a})} 
+s.add(new THREE.AmbientLight(0xffffff,.7));const pl=new THREE.PointLight(0xff3d00,60,25);pl.position.set(0,1,3);s.add(pl);
+s.userData.tick=t=>{const r=Math.min(1,scrollY/Math.max(1,innerHeight*1.2));bars.forEach(({m,a},i)=>{const ex=r*(1.6+ (i%3)*.5);m.position.x=Math.cos(a)*(2.4+ex);m.position.z=Math.sin(a)*(2.4+ex);m.rotation.z=r*.5*(i%2?1:-1)});s.rotation.y=t*.1}}}
+// MINE: score bars
+{const s=base('gl-mine');if(s){s.userData.cam.position.set(0,2.6,9);
+const data=[['Zen5',100,0xffb300],['Granite',95,0xff6a00],['Genoa-X',85,0x38bdf8],['Genoa',80,0x38bdf8],['Milan',40,0x6b7280],['Gold',32,0x4b5563]];
+data.forEach(([n,v,c],i)=>{const h=v/100*3+.2;const m=new THREE.Mesh(new THREE.BoxGeometry(.6,h,.6),new THREE.MeshStandardMaterial({color:0x11131c,emissive:c,emissiveIntensity:.9}));m.position.set((i-2.5)*1.25,h/2-1,0);s.add(m)});
+s.add(new THREE.AmbientLight(0xffffff,.9));const pl=new THREE.PointLight(0xffb300,40,20);pl.position.set(0,4,5);s.add(pl);
+s.userData.tick=t=>{s.rotation.y=Math.sin(t*.2)*.25}}}
+// loop with visibility + IO gating
+const vis=new Map();const o=new IntersectionObserver(es=>es.forEach(e=>{const sc=scenes.find(x=>x.userData.r.domElement.id===e.target.id);if(sc)sc.userData.run=e.isIntersecting}),{threshold:.05});
+scenes.forEach(sc=>o.observe(sc.userData.r.domElement));
+let hidden=false;document.addEventListener('visibilitychange',()=>hidden=document.hidden);
+const clock=new THREE.Clock();
+(function loop(){requestAnimationFrame(loop);if(hidden)return;const t=clock.getElapsedTime();scenes.forEach(sc=>{if(!sc.userData.run)return;try{sc.userData.tick&&sc.userData.tick(t);sc.userData.r.render(sc,sc.userData.cam)}catch(e){}})})();
+}}
+</script>
 </body>
 </html>
