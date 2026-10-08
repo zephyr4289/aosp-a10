@@ -206,28 +206,8 @@ def sync_tree(plan: Plan, build_root: Path, sync_jobs: int = 8) -> str:
     if not sync_ok:
         raise SyncError("repo sync failed after 3 attempts")
 
-    # device repos: direct mode wipes and shallow-clones (proven Colab flow)
-    for r in plan.rom.device_repos:
-        path, url, branch = r["path"], r["url"], r["branch"]
-        dst = build_root / path
-        if plan.rom.device_clone_mode == "direct":
-            if dst.exists():
-                shutil.rmtree(dst)
-            _run(["git", "clone", "--depth=1", "-b", branch, url, str(dst)],
-                 retries=2)
-            if shutil.which("git-lfs"):
-                subprocess.run(["git", "lfs", "pull"], cwd=str(dst), capture_output=True)
-        else:  # manifest mode: rescue only if sync left the path broken
-            if not (dst / ".git").exists() and not (dst / "Android.mk").exists() \
-                    and not (dst / "AndroidProducts.mk").exists() \
-                    and not (dst / "device.mk").exists():
-                log.warn(f"manifest mode left {path} empty — direct fallback")
-                if dst.exists():
-                    shutil.rmtree(dst)
-                _run(["git", "clone", "--depth=1", "-b", branch, url, str(dst)],
-                     retries=2)
-                if shutil.which("git-lfs"):
-                    subprocess.run(["git", "lfs", "pull"], cwd=str(dst), capture_output=True)
+    # device repos: clone / update device trees per plan configuration
+    ensure_device_repos(plan, build_root)
 
     # fingerprint BEFORE stripping .repo (manifest must be readable)
     manifest_path = build_root / ".repo" / "manifests" / "manifest.xml"
@@ -273,7 +253,29 @@ def _du(p: Path) -> int:
                 total += f.stat().st_size
         except OSError:
             pass
-    return total
+def ensure_device_repos(plan, build_root: Path) -> None:
+    """Ensure device_repos match the active plan configuration."""
+    for r in plan.rom.device_repos:
+        path, url, branch = r["path"], r["url"], r["branch"]
+        dst = build_root / path
+        if plan.rom.device_clone_mode == "direct":
+            if dst.exists():
+                shutil.rmtree(dst, ignore_errors=True)
+            _run(["git", "clone", "--depth=1", "-b", branch, url, str(dst)],
+                 retries=2)
+            if shutil.which("git-lfs"):
+                subprocess.run(["git", "lfs", "pull"], cwd=str(dst), capture_output=True)
+        else:  # manifest mode: rescue only if sync left the path broken
+            if not (dst / ".git").exists() and not (dst / "Android.mk").exists() \
+                    and not (dst / "AndroidProducts.mk").exists() \
+                    and not (dst / "device.mk").exists():
+                log.warn(f"manifest mode left {path} empty — direct fallback")
+                if dst.exists():
+                    shutil.rmtree(dst, ignore_errors=True)
+                _run(["git", "clone", "--depth=1", "-b", branch, url, str(dst)],
+                     retries=2)
+                if shutil.which("git-lfs"):
+                    subprocess.run(["git", "lfs", "pull"], cwd=str(dst), capture_output=True)
 
 
 def ensure_prebuilts(build_root: Path) -> None:

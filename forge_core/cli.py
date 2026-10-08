@@ -346,6 +346,7 @@ def cmd_slice(args, root: Path) -> int:
     if not (build_root / ".source_ready").exists():
         if not syncer.restore_source(build_root, store, src_tag):
             log.die(f"source restore failed from {src_tag}")
+    syncer.ensure_device_repos(plan, build_root)
     syncer.apply_patches(plan, build_root, root)
     syncer.validate_lunch(plan, build_root)
 
