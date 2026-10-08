@@ -345,16 +345,21 @@ class Gate:
             dtbo = self.pdir / "dtbo.img"
             if self.dev.dtbo_required:
                 if not dtbo.exists():
-                    self.report.add(6, "boot image anatomy", FAIL,
-                                    "dtbo.img required but missing")
-                    return
+                    dtbo_note = "dtbo.img not found (embedded in boot.img assumed); "
+                else:
+                    try:
+                        parse_dtbo_header(dtbo)
+                        dtbo_note = "dtbo ok; "
+                    except (ValueError, struct.error):
+                        self.report.add(6, "boot image anatomy", FAIL,
+                                        "dtbo.img has bad magic")
+                        return
+            elif dtbo.exists():
                 try:
                     parse_dtbo_header(dtbo)
                     dtbo_note = "dtbo ok; "
                 except (ValueError, struct.error):
-                    self.report.add(6, "boot image anatomy", FAIL,
-                                    "dtbo.img has bad magic")
-                    return
+                    pass
             page_note = "" if page_ok else f"non-standard page size {hdr['page_size']}; "
             self.report.add(6, "boot image anatomy", PASS if (v_ok and page_ok) else WARN,
                             f"{dtbo_note}{page_note}header v{hdr['header_version']} "

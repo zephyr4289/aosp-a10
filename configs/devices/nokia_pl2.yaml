@@ -15,7 +15,7 @@ ab_update: true                   # Android One device: seamless updates
 dynamic_partitions: false         # 17.1-era sdm660 trees: static system/vendor
 
 boot_header_version: 1            # kernel 4.19 era
-dtbo_required: true                # sdm660 DTBO overlays shipped since stock Pie
+dtbo_required: false               # Nokia 6.1 PL2 embeds DTB in boot.img; no standalone dtbo image required
 
 # --- AVB posture -------------------------------------------------------------
 avb:

@@ -975,7 +975,7 @@ jobs:
   verify:
     name: "14-point hard gate"
     needs: [plan, postcheck]
-    if: always() && needs.postcheck.outputs.phase == 'verify'
+    if: "!cancelled() && needs.postcheck.outputs.phase == 'verify'"
     runs-on: ${{ needs.plan.outputs.runner }}
     timeout-minutes: 120
     steps:
@@ -1049,7 +1049,7 @@ jobs:
   conveyor:
     name: "Conveyor (re-dispatch if more slices needed)"
     needs: [plan, postcheck]
-    if: always() && needs.postcheck.outputs.phase == 'slice'
+    if: "!cancelled() && needs.postcheck.outputs.phase == 'slice'"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
