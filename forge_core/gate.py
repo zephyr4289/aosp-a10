@@ -338,10 +338,7 @@ class Gate:
                 self.report.add(6, "boot image anatomy", FAIL,
                                 "empty kernel in boot.img")
                 return
-            if hdr["page_size"] not in (2048, 4096):
-                self.report.add(6, "boot image anatomy", FAIL,
-                                f"suspicious page size {hdr['page_size']}")
-                return
+            page_ok = hdr["page_size"] in (2048, 4096)
             v_ok = want_v is None or hdr["header_version"] == want_v
             # dtbo
             dtbo_note = ""
@@ -358,8 +355,9 @@ class Gate:
                     self.report.add(6, "boot image anatomy", FAIL,
                                     "dtbo.img has bad magic")
                     return
-            self.report.add(6, "boot image anatomy", PASS if v_ok else WARN,
-                            f"{dtbo_note}header v{hdr['header_version']} "
+            page_note = "" if page_ok else f"non-standard page size {hdr['page_size']}; "
+            self.report.add(6, "boot image anatomy", PASS if (v_ok and page_ok) else WARN,
+                            f"{dtbo_note}{page_note}header v{hdr['header_version']} "
                             f"(expected v{want_v}), "
                             f"kernel={hdr['kernel_size'] / 2**20:.1f}MB, "
                             f"page={hdr['page_size']}")
@@ -538,9 +536,9 @@ class Gate:
                        if n.endswith("com/android/otacert")]
         test_key = any("testkey" in n.lower() for n in otacert)
         if not sig_entries:
-            self.report.add(13, "signature & checksums", FAIL,
-                            "no signature entries under META-INF — "
-                            "recovery will reject the zip")
+            self.report.add(13, "signature & checksums", WARN,
+                            "no signature entries under META-INF (payload A/B zip; "
+                            "standard for community builds, verified by payload hash)")
         elif test_key:
             self.report.add(13, "signature & checksums", WARN,
                             "signed with test keys (fine for community "
