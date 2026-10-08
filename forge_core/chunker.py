@@ -35,10 +35,14 @@ def _have_zstd() -> bool:
     return shutil.which("zstd") is not None
 
 
-def _compress_cmd(level: int = 3) -> List[str]:
+def _compress_cmd(level: int = 3, extra_args: Optional[List[str]] = None) -> List[str]:
     if _have_zstd():
-        return ["zstd", "-T0", f"-{level}", "-c"]
-    return ["gzip", "-3", "-c"]      # local-test fallback (GHA always has zstd)
+        cmd = ["zstd", "-T0", f"-{level}"]
+        if extra_args:
+            cmd.extend(extra_args)
+        cmd.append("-c")
+        return cmd
+    return ["gzip", f"-{level}", "-c"]      # local-test fallback (GHA always has zstd)
 
 
 def _decompress_cmd() -> List[str]:
@@ -63,10 +67,11 @@ def _hash_file(path: Path) -> str:
 
 
 def _run_pack_pipeline(root: Path, member: str, excludes: List[str],
-                       split_args: List[str], split_stdout=subprocess.DEVNULL
+                       split_args: List[str], split_stdout=subprocess.DEVNULL,
+                       level: int = 3, extra_args: Optional[List[str]] = None
                        ) -> "subprocess.Popen[int]":
     cmd = ["tar", "-h", "-C", str(root), "-cf", "-", *_exclude_args(excludes), member]
-    comp = _compress_cmd()
+    comp = _compress_cmd(level=level, extra_args=extra_args)
     tar_p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     zst_p = subprocess.Popen(comp, stdin=tar_p.stdout, stdout=subprocess.PIPE)
     assert tar_p.stdout is not None
@@ -92,7 +97,8 @@ def _write_sums(staging: Path, parts: List[Path]) -> None:
 
 
 def pack(root: Path, member: str, staging: Path, prefix: str,
-         excludes: Optional[List[str]] = None, level: int = 3) -> List[Path]:
+         excludes: Optional[List[str]] = None, level: int = 3,
+         extra_args: Optional[List[str]] = None) -> List[Path]:
     """tar+compress `root/member` into `staging/prefix.part.aa...` (stage mode).
 
     Returns the list of part files; also writes SHA256SUMS into staging.
@@ -102,7 +108,8 @@ def pack(root: Path, member: str, staging: Path, prefix: str,
     log.log(f"packing {member} (excludes: {excludes or 'none'}) ...")
     _run_pack_pipeline(
         root, member, excludes or [],
-        ["split", "-b", str(PART_BYTES), "-", str(prefix_path) + ".part."])
+        ["split", "-b", str(PART_BYTES), "-", str(prefix_path) + ".part."],
+        level=level, extra_args=extra_args)
     part_files = sorted(staging.glob(f"{prefix}.part.*"))
     if not part_files:
         raise ChunkerError("pack produced no parts")
@@ -115,7 +122,8 @@ def pack(root: Path, member: str, staging: Path, prefix: str,
 
 def stream_pack(root: Path, member: str, prefix: str,
                 sink_sh: str, sums_out: Path,
-                excludes: Optional[List[str]] = None, level: int = 3) -> int:
+                excludes: Optional[List[str]] = None, level: int = 3,
+                extra_args: Optional[List[str]] = None) -> int:
     """Zero-staging pack: split --filter hands each part to `sink_sh`.
 
     `sink_sh` is a shell snippet in which $FILE is the finished part path
@@ -157,7 +165,8 @@ def stream_pack(root: Path, member: str, prefix: str,
     _run_pack_pipeline_env(
         root, member, excludes,
         ["split", "-b", str(PART_BYTES), "--filter", inner, "-",
-         str(prefix) + ".part."], env, cwd=work_dir)
+         str(prefix) + ".part."], env, cwd=work_dir,
+        level=level, extra_args=extra_args)
     n = sum(1 for line in sums_out.read_text().splitlines() if line.strip())
     log.ok(f"stream-packed {member}: {n} parts shipped through sink")
     return n
@@ -165,11 +174,12 @@ def stream_pack(root: Path, member: str, prefix: str,
 
 def _run_pack_pipeline_env(root: Path, member: str, excludes: List[str],
                            split_args: List[str], env: Dict[str, str],
-                           cwd: Optional[Path] = None) -> None:
+                           cwd: Optional[Path] = None,
+                           level: int = 3, extra_args: Optional[List[str]] = None) -> None:
     work_dir = cwd or root.parent
     work_dir.mkdir(parents=True, exist_ok=True)
     cmd = ["tar", "-C", str(root), "-cf", "-", *_exclude_args(excludes), member]
-    comp = _compress_cmd()
+    comp = _compress_cmd(level=level, extra_args=extra_args)
     tar_p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     zst_p = subprocess.Popen(comp, stdin=tar_p.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              env=env)

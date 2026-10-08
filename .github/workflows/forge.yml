@@ -294,11 +294,18 @@ jobs:
             export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
           fi
           python3 -m forge_core.cli --root . slice --rom "$ROM"
+      - name: "Upload slice log artifact"
+        if: always() && steps.build_gate.outputs.role == 'builder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-1-log
+          path: /tmp/forge-slice.log
+          if-no-files-found: ignore
 
   slot-2:
     name: "Slot 2 — ${{ matrix.candidate }}"
     needs: [plan, slot-1]
-    if: always() && needs.plan.result == 'success' && needs.slot-1.result == 'success'
+    if: always() && needs.plan.result == 'success' && needs.slot-1.result != 'cancelled'
     runs-on: ${{ needs.plan.outputs.runner }}
     permissions:
       contents: write
@@ -355,11 +362,18 @@ jobs:
             export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
           fi
           python3 -m forge_core.cli --root . slice --rom "$ROM"
+      - name: "Upload slice log artifact"
+        if: always() && steps.build_gate.outputs.role == 'builder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-2-log
+          path: /tmp/forge-slice.log
+          if-no-files-found: ignore
 
   slot-3:
     name: "Slot 3 — ${{ matrix.candidate }}"
     needs: [plan, slot-2]
-    if: always() && needs.plan.result == 'success' && needs.slot-2.result == 'success'
+    if: always() && needs.plan.result == 'success' && needs.slot-2.result != 'cancelled'
     runs-on: ${{ needs.plan.outputs.runner }}
     permissions:
       contents: write
@@ -416,11 +430,18 @@ jobs:
             export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
           fi
           python3 -m forge_core.cli --root . slice --rom "$ROM"
+      - name: "Upload slice log artifact"
+        if: always() && steps.build_gate.outputs.role == 'builder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-3-log
+          path: /tmp/forge-slice.log
+          if-no-files-found: ignore
 
   slot-4:
     name: "Slot 4 — ${{ matrix.candidate }}"
     needs: [plan, slot-3]
-    if: always() && needs.plan.result == 'success' && needs.slot-3.result == 'success'
+    if: always() && needs.plan.result == 'success' && needs.slot-3.result != 'cancelled'
     runs-on: ${{ needs.plan.outputs.runner }}
     permissions:
       contents: write
@@ -477,11 +498,18 @@ jobs:
             export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
           fi
           python3 -m forge_core.cli --root . slice --rom "$ROM"
+      - name: "Upload slice log artifact"
+        if: always() && steps.build_gate.outputs.role == 'builder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-4-log
+          path: /tmp/forge-slice.log
+          if-no-files-found: ignore
 
   slot-5:
     name: "Slot 5 — ${{ matrix.candidate }}"
     needs: [plan, slot-4]
-    if: always() && needs.plan.result == 'success' && needs.slot-4.result == 'success'
+    if: always() && needs.plan.result == 'success' && needs.slot-4.result != 'cancelled'
     runs-on: ${{ needs.plan.outputs.runner }}
     permissions:
       contents: write
@@ -538,11 +566,18 @@ jobs:
             export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
           fi
           python3 -m forge_core.cli --root . slice --rom "$ROM"
+      - name: "Upload slice log artifact"
+        if: always() && steps.build_gate.outputs.role == 'builder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-5-log
+          path: /tmp/forge-slice.log
+          if-no-files-found: ignore
 
   slot-6:
     name: "Slot 6 — ${{ matrix.candidate }}"
     needs: [plan, slot-5]
-    if: always() && needs.plan.result == 'success' && needs.slot-5.result == 'success'
+    if: always() && needs.plan.result == 'success' && needs.slot-5.result != 'cancelled'
     runs-on: ${{ needs.plan.outputs.runner }}
     permissions:
       contents: write
@@ -599,6 +634,13 @@ jobs:
             export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
           fi
           python3 -m forge_core.cli --root . slice --rom "$ROM"
+      - name: "Upload slice log artifact"
+        if: always() && steps.build_gate.outputs.role == 'builder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-6-log
+          path: /tmp/forge-slice.log
+          if-no-files-found: ignore
 
   # --------------------------------------------------------------------------
   #  POSTCHECK — the single source of truth for what happens next.

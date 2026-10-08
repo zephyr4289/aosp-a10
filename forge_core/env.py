@@ -361,6 +361,8 @@ RECLAIM_LADDER = [
 
 LADDER_PATTERNS = [
     "out/target/product/*/obj/*/oat_x86*",
+    "out/target/product/*/symbols*",
+    "out/target/product/*/*/symbols*",
 ]
 
 

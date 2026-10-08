@@ -136,13 +136,13 @@ def bank(build_root: Path, store, tag: str, key: str, slice_no: int,
     sums_tmp = build_root / ".forge_sums.tmp"
     if sink:
         n = chunker.stream_pack(build_root, "out", "out", sink, sums_tmp,
-                               excludes=STATE_EXCLUDES)
+                               excludes=STATE_EXCLUDES, level=1, extra_args=["--long"])
         store.upload_file(tag, sums_tmp, "SHA256SUMS")
         sums_tmp.unlink(missing_ok=True)
     else:  # fs store / stage mode
         staging = build_root.parent / ".forge-parts-state"
         parts = chunker.pack(build_root, "out", staging, "out",
-                             excludes=STATE_EXCLUDES)
+                             excludes=STATE_EXCLUDES, level=1, extra_args=["--long"])
         store.upload(tag, [staging / "SHA256SUMS", *parts])
         for p in parts + [staging / "SHA256SUMS"]:
             p.unlink(missing_ok=True)
@@ -240,7 +240,13 @@ def progress_from_log(build_log: Path, last: Dict[str, int]) -> Dict[str, int]:
     """Parse soong/ninja `[ N% done/total ]` lines from the live build log."""
     best = dict(last)
     try:
-        text = build_log.read_text(encoding="utf-8", errors="replace")
+        if not build_log.exists():
+            return best
+        size = build_log.stat().st_size
+        with open(build_log, "r", encoding="utf-8", errors="replace") as fh:
+            if size > 2 * 1024 * 1024:
+                fh.seek(size - 2 * 1024 * 1024)
+            text = fh.read()
     except OSError:
         return best
     for m in re.finditer(r"\[\s*(\d+)%\s*(\d+)/(\d+)\s*\]", text):
