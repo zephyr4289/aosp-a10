@@ -37,6 +37,10 @@ def next_action(target: Dict, max_slices: int = DEFAULT_MAX_SLICES) -> Dict[str,
     if done:
         return {"phase": "verify",
                 "reason": "INDEX done=true — run the 14-point hard gate"}
+    if cls == "no-builder":
+        return {"phase": "slice",
+                "reason": "strict mining: no builder candidate won slot — "
+                          "immediate conveyor re-dispatch for new lottery"}
     if cls == "capacity":
         return {"phase": "fail",
                 "reason": "last slice stopped on DISK CAPACITY — refusing to "

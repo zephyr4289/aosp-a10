@@ -377,11 +377,19 @@ def cmd_slice(args, root: Path) -> int:
     if (build_root / "out" / ".ninja_log").exists():
         log.ok("warm out/ present — exact resume")
     else:
-        if t.get("state_tag") and \
-                relay.restore(build_root, store, t["state_tag"]):
-            log.ok(f"resumed state {t['state_tag']} (slice "
-                   f"{t.get('slice', 0)})")
+        restored = False
+        if t.get("state_tag") and relay.restore(build_root, store, t["state_tag"]):
+            log.ok(f"resumed state {t['state_tag']} (slice {t.get('slice', 0)})")
+            restored = True
         else:
+            # Fallback: scan newest state-<key>-s* tags
+            candidate_tags = sorted(store.list_tags(f"state-{plan.rom.key}-s"), reverse=True)
+            for ctag in candidate_tags:
+                if ctag != t.get("state_tag") and relay.restore(build_root, store, ctag):
+                    log.ok(f"fallback resumed newest available state {ctag}")
+                    restored = True
+                    break
+        if not restored:
             log.log("cold out/ — merging any turbo prewarm states")
             turbo.merge_turbo_states(build_root, store, plan.rom.key)
 

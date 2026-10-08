@@ -194,17 +194,24 @@ class ReleaseStore:
 
         `gh release create` has GitHub create the tag server-side; two
         concurrent creators race on one tag and exactly one wins — the
-        loser gets 'already_exists' (422). A failed create that did NOT
-        materialize the tag is a real store error and raises.
+        loser gets 'already_exists' (422). Retries transient network/5xx
+        failures up to 3 times with exponential backoff.
         """
         target = os.environ.get("GITHUB_REF_NAME", "main")
         args = ["release", "create", tag, "--title", title,
                 "--notes", notes, "--target", target]
-        r = self._gh(*args, check=False)
-        if r.returncode == 0:
-            return True
+        for attempt in range(1, 4):
+            r = self._gh(*args, check=False)
+            if r.returncode == 0:
+                return True
+            if self.exists(tag):
+                return False                      # lost the race — clean
+            if attempt < 3:
+                delay = 2 ** attempt
+                log.warn(f"claim retry {attempt}/3 for {tag}: {r.stderr.strip()[:100]} (backing off {delay}s)")
+                time.sleep(delay)
         if self.exists(tag):
-            return False                      # lost the race — clean
+            return False
         raise StoreError(f"claim {tag} failed: {r.stderr.strip()[:200]}")
 
     def gc_locks(self, key: str) -> List[str]:
@@ -396,11 +403,28 @@ class Router:
             return {"schema": 1, "targets": {}}
         tmp = Path(".forge-tmp-index")
         tmp.mkdir(parents=True, exist_ok=True)
+        # Try primary INDEX.json first
         try:
             self.download(self.INDEX_TAG, "INDEX.json", tmp)
-            return json.loads((tmp / "INDEX.json").read_text(encoding="utf-8"))
-        except (StoreError, json.JSONDecodeError):
-            return {"schema": 1, "targets": {}}
+            content = (tmp / "INDEX.json").read_text(encoding="utf-8")
+            data = json.loads(content)
+            if isinstance(data, dict) and "targets" in data:
+                return data
+        except Exception as e:
+            log.warn(f"::warning::primary INDEX.json read failed ({e}) — attempting backup")
+
+        # Fallback to INDEX.json.bak
+        try:
+            self.download(self.INDEX_TAG, "INDEX.json.bak", tmp)
+            content = (tmp / "INDEX.json.bak").read_text(encoding="utf-8")
+            data = json.loads(content)
+            if isinstance(data, dict) and "targets" in data:
+                log.ok("recovered coordination index from INDEX.json.bak")
+                return data
+        except Exception as e:
+            log.warn(f"::warning::backup INDEX.json.bak read failed ({e})")
+
+        return {"schema": 1, "targets": {}}
 
     def index_save(self, index: Dict) -> None:
         if not self.exists(self.INDEX_TAG):
@@ -408,9 +432,14 @@ class Router:
                         "Auto-generated coordination record. Do not edit.")
         tmp = Path(".forge-tmp-index")
         tmp.mkdir(parents=True, exist_ok=True)
-        (tmp / "INDEX.json").write_text(json.dumps(index, indent=2, sort_keys=True),
-                                         encoding="utf-8")
+        payload = json.dumps(index, indent=2, sort_keys=True)
+        (tmp / "INDEX.json").write_text(payload, encoding="utf-8")
+        (tmp / "INDEX.json.bak").write_text(payload, encoding="utf-8")
         self.upload_file(self.INDEX_TAG, tmp / "INDEX.json")
+        try:
+            self.upload_file(self.INDEX_TAG, tmp / "INDEX.json.bak")
+        except Exception:
+            pass
 
     def target(self, key: str) -> Dict:
         idx = self.index_load()

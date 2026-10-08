@@ -234,7 +234,7 @@ class TestWorkflowWiring(unittest.TestCase):
         self.assertIn("gh workflow run", body)      # self re-dispatch
 
     def test_slots_are_mining_matrices(self):
-        for i in range(1, 7):
+        for i in range(1, 11):
             job = self.forge["jobs"][f"slot-{i}"]
             matrix = job.get("strategy", {}).get("matrix", {})
             self.assertIn("candidate", matrix,
@@ -250,7 +250,7 @@ class TestWorkflowWiring(unittest.TestCase):
 
     def test_all_slot_build_steps_gated_on_builder_role(self):
         """Non-builder candidates must never reach the build (fast-discard)."""
-        for i in range(1, 7):
+        for i in range(1, 11):
             job = self.forge["jobs"][f"slot-{i}"]
             for s in job.get("steps", []):
                 if "Build slot" in s.get("name", ""):
@@ -260,7 +260,7 @@ class TestWorkflowWiring(unittest.TestCase):
 
     def test_mining_gate_step_has_id(self):
         """The role output must be addressable (id: build_gate)."""
-        for i in range(1, 7):
+        for i in range(1, 11):
             job = self.forge["jobs"][f"slot-{i}"]
             gate = next(s for s in job.get("steps", [])
                         if "mining gate" in s.get("name", ""))

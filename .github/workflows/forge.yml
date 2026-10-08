@@ -68,6 +68,7 @@ on:
         default: true
   schedule:
     - cron: "17 3 * * 1"   # weekly catch-up (resume if a run was cut short)
+    - cron: "17 3 * * *"   # daily progress pulse
 
 concurrency:
   group: forge-${{ github.event.inputs.rom || 'qassa-a10' }}
@@ -199,7 +200,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 6
       matrix:
         partition: ${{ fromJSON(needs.plan.outputs.turbo) }}
     steps:
@@ -642,6 +643,278 @@ jobs:
           path: /tmp/forge-slice.log
           if-no-files-found: ignore
 
+  slot-7:
+    name: "Slot 7 — ${{ matrix.candidate }}"
+    needs: [plan, slot-6]
+    if: always() && needs.plan.result == 'success' && needs.slot-6.result != 'cancelled'
+    runs-on: ${{ needs.plan.outputs.runner }}
+    permissions:
+      contents: write
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        candidate: ${{ fromJSON(needs.plan.outputs.mining) }}
+    env:
+      ROM: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      KEY: ${{ needs.plan.outputs.key }}
+      SLOT: "7"
+      LOCK: lock-${{ needs.plan.outputs.key }}-r${{ github.run_id }}-s7
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Silicon mining gate (probe + atomic claim)"
+        id: build_gate
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          set -euo pipefail
+          python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
+            --min-score 100 --wait-s 240 --strict | tee mine.txt
+          ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
+          echo "role=$ROLE" >> "$GITHUB_OUTPUT"
+          if [ "$ROLE" != "builder" ]; then
+            echo "::notice::candidate ${LOCK}: role=$ROLE — fast-discard"
+            exit 0
+          fi
+      - name: "Prepare storage volume"
+        if: steps.build_gate.outputs.role == 'builder'
+        run: |
+          sudo systemctl stop docker containerd 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
+      - uses: actions/setup-python@v5
+        if: steps.build_gate.outputs.role == 'builder'
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+        if: steps.build_gate.outputs.role == 'builder'
+      - name: "Prepare runner (mounts btrfs zstd:1 build volume)"
+        if: steps.build_gate.outputs.role == 'builder'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "$ROM"
+      - name: "Build slot 7"
+        id: slot
+        if: steps.build_gate.outputs.role == 'builder'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORGE_SLOT: "7"
+        run: |
+          set -euo pipefail
+          if [ -n "${{ needs.plan.outputs.target }}" ]; then
+            export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
+          fi
+          python3 -m forge_core.cli --root . slice --rom "$ROM"
+      - name: "Upload slice log artifact"
+        if: always() && steps.build_gate.outputs.role == 'builder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-7-log
+          path: /tmp/forge-slice.log
+          if-no-files-found: ignore
+
+  slot-8:
+    name: "Slot 8 — ${{ matrix.candidate }}"
+    needs: [plan, slot-7]
+    if: always() && needs.plan.result == 'success' && needs.slot-7.result != 'cancelled'
+    runs-on: ${{ needs.plan.outputs.runner }}
+    permissions:
+      contents: write
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        candidate: ${{ fromJSON(needs.plan.outputs.mining) }}
+    env:
+      ROM: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      KEY: ${{ needs.plan.outputs.key }}
+      SLOT: "8"
+      LOCK: lock-${{ needs.plan.outputs.key }}-r${{ github.run_id }}-s8
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Silicon mining gate (probe + atomic claim)"
+        id: build_gate
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          set -euo pipefail
+          python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
+            --min-score 100 --wait-s 240 --strict | tee mine.txt
+          ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
+          echo "role=$ROLE" >> "$GITHUB_OUTPUT"
+          if [ "$ROLE" != "builder" ]; then
+            echo "::notice::candidate ${LOCK}: role=$ROLE — fast-discard"
+            exit 0
+          fi
+      - name: "Prepare storage volume"
+        if: steps.build_gate.outputs.role == 'builder'
+        run: |
+          sudo systemctl stop docker containerd 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
+      - uses: actions/setup-python@v5
+        if: steps.build_gate.outputs.role == 'builder'
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+        if: steps.build_gate.outputs.role == 'builder'
+      - name: "Prepare runner (mounts btrfs zstd:1 build volume)"
+        if: steps.build_gate.outputs.role == 'builder'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "$ROM"
+      - name: "Build slot 8"
+        id: slot
+        if: steps.build_gate.outputs.role == 'builder'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORGE_SLOT: "8"
+        run: |
+          set -euo pipefail
+          if [ -n "${{ needs.plan.outputs.target }}" ]; then
+            export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
+          fi
+          python3 -m forge_core.cli --root . slice --rom "$ROM"
+      - name: "Upload slice log artifact"
+        if: always() && steps.build_gate.outputs.role == 'builder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-8-log
+          path: /tmp/forge-slice.log
+          if-no-files-found: ignore
+
+  slot-9:
+    name: "Slot 9 — ${{ matrix.candidate }}"
+    needs: [plan, slot-8]
+    if: always() && needs.plan.result == 'success' && needs.slot-8.result != 'cancelled'
+    runs-on: ${{ needs.plan.outputs.runner }}
+    permissions:
+      contents: write
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        candidate: ${{ fromJSON(needs.plan.outputs.mining) }}
+    env:
+      ROM: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      KEY: ${{ needs.plan.outputs.key }}
+      SLOT: "9"
+      LOCK: lock-${{ needs.plan.outputs.key }}-r${{ github.run_id }}-s9
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Silicon mining gate (probe + atomic claim)"
+        id: build_gate
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          set -euo pipefail
+          python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
+            --min-score 100 --wait-s 240 --strict | tee mine.txt
+          ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
+          echo "role=$ROLE" >> "$GITHUB_OUTPUT"
+          if [ "$ROLE" != "builder" ]; then
+            echo "::notice::candidate ${LOCK}: role=$ROLE — fast-discard"
+            exit 0
+          fi
+      - name: "Prepare storage volume"
+        if: steps.build_gate.outputs.role == 'builder'
+        run: |
+          sudo systemctl stop docker containerd 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
+      - uses: actions/setup-python@v5
+        if: steps.build_gate.outputs.role == 'builder'
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+        if: steps.build_gate.outputs.role == 'builder'
+      - name: "Prepare runner (mounts btrfs zstd:1 build volume)"
+        if: steps.build_gate.outputs.role == 'builder'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "$ROM"
+      - name: "Build slot 9"
+        id: slot
+        if: steps.build_gate.outputs.role == 'builder'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORGE_SLOT: "9"
+        run: |
+          set -euo pipefail
+          if [ -n "${{ needs.plan.outputs.target }}" ]; then
+            export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
+          fi
+          python3 -m forge_core.cli --root . slice --rom "$ROM"
+      - name: "Upload slice log artifact"
+        if: always() && steps.build_gate.outputs.role == 'builder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-9-log
+          path: /tmp/forge-slice.log
+          if-no-files-found: ignore
+
+  slot-10:
+    name: "Slot 10 — ${{ matrix.candidate }}"
+    needs: [plan, slot-9]
+    if: always() && needs.plan.result == 'success' && needs.slot-9.result != 'cancelled'
+    runs-on: ${{ needs.plan.outputs.runner }}
+    permissions:
+      contents: write
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        candidate: ${{ fromJSON(needs.plan.outputs.mining) }}
+    env:
+      ROM: ${{ github.event.inputs.rom || 'qassa-a10' }}
+      KEY: ${{ needs.plan.outputs.key }}
+      SLOT: "10"
+      LOCK: lock-${{ needs.plan.outputs.key }}-r${{ github.run_id }}-s10
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Silicon mining gate (probe + atomic claim)"
+        id: build_gate
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          set -euo pipefail
+          python3 -m forge_core.mine gate --tag "$LOCK" --key "$KEY" \
+            --min-score 100 --wait-s 240 --strict | tee mine.txt
+          ROLE=$(sed -n 's/^OUT: role=//p' mine.txt | tail -1)
+          echo "role=$ROLE" >> "$GITHUB_OUTPUT"
+          if [ "$ROLE" != "builder" ]; then
+            echo "::notice::candidate ${LOCK}: role=$ROLE — fast-discard"
+            exit 0
+          fi
+      - name: "Prepare storage volume"
+        if: steps.build_gate.outputs.role == 'builder'
+        run: |
+          sudo systemctl stop docker containerd 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd 2>/dev/null || true
+          sudo mkdir -p /mnt/romforge /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /opt /opt/romforge 2>/dev/null || true
+      - uses: actions/setup-python@v5
+        if: steps.build_gate.outputs.role == 'builder'
+        with: { python-version: "3.11" }
+      - run: python3 -m pip install --quiet pyyaml
+        if: steps.build_gate.outputs.role == 'builder'
+      - name: "Prepare runner (mounts btrfs zstd:1 build volume)"
+        if: steps.build_gate.outputs.role == 'builder'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: python3 -m forge_core.cli --root . prepare --rom "$ROM"
+      - name: "Build slot 10"
+        id: slot
+        if: steps.build_gate.outputs.role == 'builder'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORGE_SLOT: "10"
+        run: |
+          set -euo pipefail
+          if [ -n "${{ needs.plan.outputs.target }}" ]; then
+            export FORGE_TARGET_OVERRIDE="${{ needs.plan.outputs.target }}"
+          fi
+          python3 -m forge_core.cli --root . slice --rom "$ROM"
+      - name: "Upload slice log artifact"
+        if: always() && steps.build_gate.outputs.role == 'builder'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-10-log
+          path: /tmp/forge-slice.log
+          if-no-files-found: ignore
+
   # --------------------------------------------------------------------------
   #  POSTCHECK — the single source of truth for what happens next.
   #  Reads INDEX.json (via `forge probe`) and emits `phase`:
@@ -653,7 +926,7 @@ jobs:
   # --------------------------------------------------------------------------
   postcheck:
     name: "Postcheck (INDEX -> phase)"
-    needs: [plan, slot-1, slot-2, slot-3, slot-4, slot-5, slot-6]
+    needs: [plan, slot-1, slot-2, slot-3, slot-4, slot-5, slot-6, slot-7, slot-8, slot-9, slot-10]
     if: always() && needs.plan.result == 'success'
     runs-on: ubuntu-latest
     permissions:
