@@ -1,0 +1,54 @@
+# =============================================================================
+#  Google Pixel 8 (shiba) — Google Tensor G3 (zuma)
+#  Safety Profile for the 14-Point Anti-Brick Gate.
+# =============================================================================
+name: google_shiba
+codenames: [shiba, GKWS6, G9BQD, GPJ41, GZPF0]
+
+soc: Tensor G3 (zuma)
+arch: arm64
+kernel_version: "5.15"
+ab_update: true                   # Virtual A/B (V-A/B with compression)
+dynamic_partitions: true          # Dynamic partitions inside super.img
+
+boot_header_version: 4            # GKI kernel header v4
+dtbo_required: true
+
+# --- AVB posture -------------------------------------------------------------
+avb:
+  enabled: false                  # custom-ROM/unlocked-BL posture
+  verity_disabled: true
+
+# --- partition size budgets ---------------------------------------------------
+budgets_authority: tree
+partition_budgets:
+  super:
+    size_bytes: 8589934592        # 8.0 GiB standard Pixel 8 super partition
+    source: "device tree BoardConfig"
+  boot:
+    size_bytes: 67108864          # 64 MiB
+    source: "device tree BoardConfig"
+  init_boot:
+    size_bytes: 67108864          # 64 MiB
+    source: "device tree BoardConfig"
+  vendor_boot:
+    size_bytes: 67108864          # 64 MiB
+    source: "device tree BoardConfig"
+  dtbo:
+    size_bytes: 16777216          # 16 MiB
+    source: "device tree BoardConfig"
+
+# --- anti-crossflash tokens ---------------------------------------------------
+anti_crossflash:
+  ro_product_device: [shiba]
+  fingerprint_tokens: [google/shiba, shiba]
+  fastboot_product: [shiba]
+
+# --- security patch window ----------------------------------------------------
+spl_window:
+  min: "2023-10-01"
+  max: "2030-10-01"
+
+# --- Treble / VNDK ------------------------------------------------------------
+vndk:
+  required: false

@@ -1,0 +1,43 @@
+# =============================================================================
+#  LineageOS 23.2 (Android 17) for Google Pixel 8 (shiba)
+#  Targeting Tensor G3 (zuma) with Release Flags & Trunk Staging
+# =============================================================================
+name: LineageOS
+android_version: 17
+device: google_shiba              # -> configs/devices/ lookup key
+
+manifest_url: https://github.com/LineageOS/android
+manifest_branch: lineage-23.2
+
+lunch: lineage_shiba-trunk_staging-userdebug
+build_target: bacon
+rom_zip_glob: "lineage-*.zip"
+
+device_clone_mode: direct         # shallow clone post-sync
+device_repos:
+  - path: device/google/shiba
+    url: https://github.com/LineageOS/android_device_google_shiba
+    branch: lineage-23.2
+  - path: device/google/shusky
+    url: https://github.com/LineageOS/android_device_google_shusky
+    branch: lineage-23.2
+  - path: device/google/zuma
+    url: https://github.com/LineageOS/android_device_google_zuma
+    branch: lineage-23.2
+  - path: kernel/google/zuma
+    url: https://github.com/LineageOS/android_kernel_google_zuma
+    branch: lineage-23.2
+
+env:
+  TARGET_RELEASE: "trunk_staging"
+  WITH_DEXPREOPT: "false"         # massive time + disk saver
+  DONT_INSTALL_DEX_DEBUG_INFO: "true"
+  ALLOW_MISSING_DEPENDENCIES: "true"
+
+slices: 8                         # A17 on Zen 5 Turin 4 vCPU: chained relay slots
+slice_build_seconds: 16500
+
+turbo:
+  enabled: false                  # Keep false to prevent Soong memory explosion on A17
+  targets: [bootimage, vendor_boot, vendorimage, dtboimage]
+  budget_s: 16500
