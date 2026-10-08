@@ -23,6 +23,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -274,9 +275,28 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                 _graceful_stop(STOP_DISK)
                 continue
 
-    # ---- live 1-second terminal pulse thread ---------------------------------
+    # ---- live in-place ticker & milestone pulse thread -----------------------
+    SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
     last: Dict[str, int] = {"pct": 0, "done": 0, "total": 0}
     notified = {"pct": -5}
+
+    def _btrfs_savings() -> str:
+        try:
+            snap = storage.snapshot(build_root)
+            if snap.mode != "btrfs":
+                return ""
+            logical_used = max(0.0, snap.cap_gb - snap.logical_free_gb)
+            img_path = storage.backing_dir() / storage.IMG_NAME
+            if img_path.exists():
+                physical_used = (img_path.stat().st_blocks * 512) / (1024 ** 3)
+            else:
+                physical_used = logical_used
+            saved = max(0.0, logical_used - physical_used)
+            if saved >= 0.1:
+                return f" | [Disk: {logical_used:.1f}G log -> {physical_used:.1f}G phys ({saved:.1f}G saved)]"
+        except Exception:
+            pass
+        return ""
 
     def live_heartbeat() -> None:
         last_log_pos = 0
@@ -284,6 +304,11 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
         disk_tick = 0
         cached_free_disk = 0.0
         cached_disk_label = ""
+        spinner_idx = 0
+        last_permanent_time = time.time()
+        last_milestone_done = 0
+        last_milestone_pct = 0
+
         while not stop.wait(1.0):
             # 1. Read latest active step from build_log
             try:
@@ -335,14 +360,50 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
 
             now_str = time.strftime("%H:%M:%S")
             prog_label = f"[{pct}% {done}/{total}]" if total > 0 else "[building]"
-            print(f"[{now_str}] {prog_label} {latest_action} | {mem_str} | "
-                  f"Disk({cached_disk_label}): {cached_free_disk:.1f}G free", flush=True)
+
+            # Calculate remaining budget time
+            elapsed_cur = time.time() - t0
+            rem_s = max(0, budget_s - elapsed_cur)
+            rem_h = int(rem_s) // 3600
+            rem_m = (int(rem_s) % 3600) // 60
+            budget_str = f"budget: {rem_h}h {rem_m:02d}m left" if rem_h > 0 else f"budget: {rem_m}m left"
+
+            # Check milestone / pulse trigger
+            now_time = time.time()
+            is_milestone = (total > 0 and (done >= last_milestone_done + 500 or (pct >= last_milestone_pct + 1 and pct > 0)))
+            is_pulse = (now_time - last_permanent_time >= 20.0)
+
+            if is_milestone or is_pulse:
+                tag_label = "MILESTONE" if is_milestone else "PULSE"
+                storage_info = _btrfs_savings()
+                sys.stdout.write(
+                    f"\r[{now_str}] [{tag_label}] {prog_label} {latest_action} | "
+                    f"{budget_str}{storage_info} | {mem_str} | "
+                    f"Disk({cached_disk_label}): {cached_free_disk:.1f}G free\x1b[K\n"
+                )
+                sys.stdout.flush()
+                last_permanent_time = now_time
+                if is_milestone:
+                    last_milestone_done = done
+                    last_milestone_pct = pct
+            else:
+                spinner = SPINNER_FRAMES[spinner_idx]
+                sys.stdout.write(
+                    f"\r[{now_str}] {spinner} {prog_label} {latest_action} | "
+                    f"{budget_str} | {mem_str} | "
+                    f"Disk({cached_disk_label}): {cached_free_disk:.1f}G free\x1b[K"
+                )
+                sys.stdout.flush()
+                spinner_idx = (spinner_idx + 1) % len(SPINNER_FRAMES)
 
             if pct - notified["pct"] >= 5:
                 notified["pct"] = pct
                 log.notice(
                     f"PROGRESS:{pct}:{done}/{total}",
                     title="Build-Progress")
+
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
     # ---- dynamic adaptive swap watchdog (OOM immunity on surge) -------------
     dynamic_swap_chunks: List[Path] = []
