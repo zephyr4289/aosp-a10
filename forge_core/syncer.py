@@ -390,14 +390,31 @@ def validate_lunch(plan: Plan, build_root: Path) -> None:
         raise SyncError(f"bad lunch combo: {plan.rom.lunch}")
     product = lunch_parts[0]
     dev = plan.rom.lunch.split("_")[1].split("-")[0] if "_" in plan.rom.lunch else ""
+
+    found = False
     for r in plan.rom.device_repos:
-        if r["path"].startswith("device/") and dev and dev in r["path"]:
-            # product mk must exist in the declared device repo path
-            found = list((build_root / r["path"]).glob(f"{product}*.mk")) or \
-                list((build_root / r["path"]).glob("AndroidProducts.mk"))
-            if not found:
-                raise SyncError(
-                    f"{r['path']} has neither {product}*.mk nor "
-                    f"AndroidProducts.mk — device tree incomplete")
-            break
+        if r["path"].startswith("device/"):
+            repo_path = build_root / r["path"]
+            if repo_path.exists():
+                mk_files = list(repo_path.glob(f"{product}*.mk")) or \
+                           list(repo_path.glob(f"*{dev}*.mk")) or \
+                           list(repo_path.glob("AndroidProducts.mk"))
+                if mk_files:
+                    found = True
+                    break
+
+    if not found:
+        dev_root = build_root / "device"
+        if dev_root.exists():
+            mk_files = list(dev_root.glob(f"**/{product}*.mk")) or \
+                       list(dev_root.glob(f"**/*{dev}*.mk")) or \
+                       list(dev_root.glob("**/AndroidProducts.mk"))
+            if mk_files:
+                found = True
+
+    if not found:
+        raise SyncError(
+            f"device tree for {product} ({dev}) has neither {product}*.mk nor "
+            f"AndroidProducts.mk — device tree incomplete")
+
     log.ok(f"lunch {plan.rom.lunch}: device tree structurally sane")
