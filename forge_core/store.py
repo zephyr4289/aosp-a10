@@ -459,9 +459,18 @@ class Router:
     # -- gc -------------------------------------------------------------------
     def gc_state(self, key: str, keep: int = 2) -> List[str]:
         """Drop stale slice/turbo state tags for `key`, keep newest N."""
-        tags = sorted(self.list_tags(f"state-{key}-s"))
+        def _slice_num(tag: str) -> int:
+            try:
+                return int(tag.rsplit("-s", 1)[-1])
+            except (ValueError, IndexError):
+                return -1
+
+        tags = sorted(self.list_tags(f"state-{key}-s"), key=_slice_num)
         dropped = []
+        active_tag = self.target(key).get("state_tag", "")
         for tag in tags[:-keep] if len(tags) > keep else []:
+            if tag == active_tag:
+                continue
             self.delete(tag)
             dropped.append(tag)
         for tag in self.list_tags(f"state-{key}-turbo-"):
