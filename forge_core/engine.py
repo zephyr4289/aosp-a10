@@ -85,25 +85,13 @@ def _cgroup_run_prefix(phase: str = "exec") -> Optional[List[str]]:
     """Rung 1: delegated cgroupv2 dir; Rung 2: systemd-run; Rung 3: None."""
     limits = CG_PHASE_LIMITS.get(phase, CG_PHASE_LIMITS["exec"])
     mem, swp, cpu = limits
-    try:
-        if Path("/sys/fs/cgroup/cgroup.controllers").exists():
-            base = Path("/sys/fs/cgroup/romforge") / phase
-            subprocess.run(["sudo", "mkdir", "-p", str(base)], check=True, timeout=10,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            for f, v in (("memory.max", mem), ("memory.swap.max", swp),
-                         ("memory.high", "11G" if phase == "exec" else "13G"),
-                         ("cpu.max", cpu)):
-                subprocess.run(["sudo", "sh", "-c", f"echo {v} > {base}/{f}"],
-                               check=True, timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return ["sudo", "-E", "systemd-run", "--scope", "--quiet",
-                    f"--unit=forge-{phase}-{int(time.time())}", "bash", "-c"]
-    except Exception:
-        pass
+    uid = os.getuid()
+    gid = os.getgid()
     if shutil.which("systemd-run"):
         try:
-            return ["sudo", "-E", "systemd-run", "--scope", "--quiet",
-                    f"-p", f"MemoryMax={mem}", f"-p", f"MemorySwapMax={swp}",
-                    f"-p", f"CPUQuota={int(cpu.split()[0]) // 1000}%", "bash", "-c"]
+            return ["sudo", "-E", "systemd-run", f"--uid={uid}", f"--gid={gid}", "--scope", "--quiet",
+                    "-p", f"MemoryMax={mem}", f"-p", f"MemorySwapMax={swp}",
+                    "-p", f"CPUQuota={int(cpu.split()[0]) // 1000}%", "bash", "-c"]
         except Exception:
             pass
     return None
@@ -355,7 +343,7 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
 
     launcher = _launcher(plan, soong_ui, jobs, target, combined=combined, build_root=build_root, env_overrides=e)
 
-    prefix = _cgroup_run_prefix("exec" if combined else "analysis") or ["bash", "-c"]
+    prefix = (_cgroup_run_prefix("exec" if combined else "analysis") if os.environ.get("FORGE_CGROUP") == "1" else None) or ["bash", "-c"]
     t0 = time.time()
     with open(build_log, "ab", buffering=0) as logf:
         proc = subprocess.Popen([*prefix, launcher], cwd=str(build_root),
