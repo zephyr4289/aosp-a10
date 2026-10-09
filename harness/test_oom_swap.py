@@ -150,7 +150,12 @@ class TestOomSwap(unittest.TestCase):
             self.assertAlmostEqual(psi_val, 95.80)
 
     def test_cgroup_ladder_generation(self):
-        """P1: cgroup run prefix builds correct limits for phases."""
+        """P0-5.4: phase-scoped cgroup envelopes.
+
+        analysis: MemoryHigh only, NO MemoryMax (capping a 32.6 GiB live
+        set at any lower number is a slower death — R2/R3; memory.high
+        reclaims inside the process instead of starving the runner).
+        exec: hard MemoryMax + MemorySwapMax."""
         from forge_core import engine
 
         # systemd-run fallback check
@@ -158,8 +163,15 @@ class TestOomSwap(unittest.TestCase):
              patch("shutil.which", return_value="/usr/bin/systemd-run"):
             cmd = engine._cgroup_run_prefix("analysis")
             self.assertIsNotNone(cmd)
-            self.assertIn("MemoryMax=14G", " ".join(cmd))
-            self.assertIn("MemorySwapMax=12G", " ".join(cmd))
+            joined = " ".join(cmd)
+            self.assertIn("MemoryHigh=16G", joined)
+            self.assertNotIn("MemoryMax=", joined,
+                             "analysis phase must NOT carry a hard MemoryMax")
+            self.assertNotIn("MemorySwapMax=", joined)
+            cmd_exec = engine._cgroup_run_prefix("exec")
+            joined_exec = " ".join(cmd_exec)
+            self.assertIn("MemoryMax=13G", joined_exec)
+            self.assertIn("MemorySwapMax=6G", joined_exec)
 
 
 if __name__ == "__main__":
