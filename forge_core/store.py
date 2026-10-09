@@ -253,6 +253,14 @@ class FsStore:
     def delete(self, tag: str, cleanup_tag: bool = True) -> None:
         shutil.rmtree(self._dir(tag), ignore_errors=True)
 
+    def reset(self, tag: str, title: str = "", notes: str = "") -> None:
+        """P0-4: delete+recreate atomicity — stale parts of a previous
+        larger bank must not linger (the manifest exact-set contract
+        depends on a clean slate). Previously missing on FsStore, so
+        relay.bank's reset silently no-opped outside ReleaseStore."""
+        self.delete(tag)
+        self.create(tag, title, notes)
+
     def upload(self, tag: str, files: List[Path], clobber: bool = True) -> None:
         d = self._dir(tag)
         d.mkdir(parents=True, exist_ok=True)
@@ -376,6 +384,8 @@ class Router:
     def create(self, tag, title, notes, target=None):
         return self.rel.create(tag, title, notes, target)
     def delete(self, tag): return self.rel.delete(tag)
+    def reset(self, tag, title="", notes=""):
+        return self.rel.reset(tag, title, notes)
     def upload(self, tag, files, clobber=True):
         return self.rel.upload(tag, files, clobber)
     def upload_file(self, tag, file, name=None):

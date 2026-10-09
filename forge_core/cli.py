@@ -373,6 +373,14 @@ def _run_single_slice(plan, store, build_root: Path, budget: int, args, use_ccac
     if res["classification"] in ("sliced", "capacity"):
         n = int(t.get("slice", 0)) + 1
         tag = f"state-{plan.rom.key}-s{n}"
+        # P0-4.1 graph-first flush: the cheap critical set (~1.5-3 GB,
+        # ~40-90 s) goes up BEFORE the full 16 GB stream-pack, so an
+        # eviction mid-bank still leaves the next slot a usable graph
+        try:
+            relay.bank_critical(build_root, store, tag, plan.rom.key,
+                                notes=f"crit flush, slice {n}")
+        except Exception as e:
+            log.warn(f"bank_critical failed (continuing to full bank): {e}")
         if not store.exists(tag):
             store.create(tag, f"out-state {plan.rom.key} slice {n}",
                          "Exact-resume ninja state.")
@@ -398,9 +406,16 @@ def _run_single_slice(plan, store, build_root: Path, budget: int, args, use_ccac
         except Exception:
             pass
 
-    # bank what we have anyway (compiled objects are valuable)
+    # bank what we have anyway (compiled objects are valuable) — and
+    # P0-4.1 graph-first flush FIRST (the mem-stall/eviction race is
+    # exactly the case where the full bank never completes)
     n = int(t.get("slice", 0)) + 1
     tag = f"state-{plan.rom.key}-s{n}"
+    try:
+        relay.bank_critical(build_root, store, tag, plan.rom.key,
+                            notes=f"crit flush, slice {n} (error path)")
+    except Exception as e:
+        log.warn(f"bank_critical failed (continuing to full bank): {e}")
     if not store.exists(tag):
         store.create(tag, f"out-state {plan.rom.key} slice {n} (post-error)",
                      "Exact-resume ninja state after a build error.")
@@ -475,6 +490,19 @@ def cmd_slice(args, root: Path) -> int:
     # ---- 1. storage volume + tree --------------------------------------------
     vol = _ensure_volume(args)
     build_root = Path(vol.build_root) if vol.build_root else _build_root(args)
+
+    # ---- 1.5 P0-4.4 purge discipline: GC orphaned partial banks -------------
+    # (parts with neither SHA256SUMS nor MANIFEST — interrupted uploads
+    # from evicted slots; they poison newest-first fallback ordering)
+    try:
+        dropped = relay.gc_orphan_state_banks(
+            store, plan.rom.key,
+            keep_tags=[t.get("state_tag") or ""])
+        if dropped:
+            log.ok(f"gc: purged {len(dropped)} orphaned partial bank(s): "
+                   f"{', '.join(dropped)}")
+    except Exception as e:
+        log.warn(f"gc_orphan_state_banks failed (non-fatal): {e}")
 
     # ---- 2. source ----------------------------------------------------------
     src_tag = (f"src-{args.mhash}" if getattr(args, "mhash", None) else None) or t.get("src_tag")
@@ -591,13 +619,20 @@ def cmd_slice(args, root: Path) -> int:
             log.ok(f"resumed state {t['state_tag']} (slice {t.get('slice', 0)})")
             restored = True
         else:
-            # Fallback: scan newest state-<key>-s* tags
+            # Fallback: scan newest state-<key>-s* tags — P0-4: skip any
+            # bank that fails the completeness guard (the s3 Frankenstein
+            # would otherwise be unpacked newest-first and corrupt out/)
             candidate_tags = sorted(store.list_tags(f"state-{plan.rom.key}-s"), reverse=True)
             for ctag in candidate_tags:
-                if ctag != t.get("state_tag") and relay.restore(build_root, store, ctag):
-                    log.ok(f"fallback resumed newest available state {ctag}")
-                    restored = True
-                    break
+                if ctag != t.get("state_tag"):
+                    if relay.bank_is_complete(store, ctag) is None:
+                        log.warn(f"fallback scanner: SKIPPING incomplete "
+                                 f"bank {ctag} (Frankenstein guard)")
+                        continue
+                    if relay.restore(build_root, store, ctag):
+                        log.ok(f"fallback resumed newest available state {ctag}")
+                        restored = True
+                        break
         if not restored:
             log.log("cold out/ — merging any turbo prewarm states")
             turbo.merge_turbo_states(build_root, store, plan.rom.key)
