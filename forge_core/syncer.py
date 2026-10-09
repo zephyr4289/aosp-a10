@@ -387,6 +387,96 @@ def apply_patches(plan: Plan, build_root: Path, forge_root: Path) -> List[str]:
     return applied
 
 
+# ---- P0-3: deterministic-tree mtime discipline (OVERHAUL.md §5.3) -----------
+# Every slot's deliberate source-tree mutations (patch copy2, the webview
+# prebuilt fetch, device-repo validation) bump .bp/.mk mtimes to *now*,
+# even though the CONTENT is byte-identical to what the frozen graph was
+# generated from. That lies to both the G3 freshness check and ninja's
+# own restat (recorded input mtimes in .ninja_deps). The fix: cut an
+# mtime manifest at graph-mint time, and re-stamp the tree to it after
+# every mutation phase — the invariant is that the patched tree is byte-
+# AND mtime-deterministic across every slot of a campaign.
+SRC_MTIME_MANIFEST = "src-mtimes.txt"
+
+
+def stamp_manifest(build_root: Path, out_path: Optional[Path] = None) -> Optional[Path]:
+    """Cut the deterministic-tree mtime manifest: '%P\\t%T@' per .bp/.mk.
+
+    Call ONCE per campaign, right after the graph mint (the analysis ran
+    from exactly this tree state — its mtimes are the canonical ones).
+    ~80k lines / ~4 MB."""
+    out_path = out_path or (build_root / ".forge-src-mtimes.txt")
+    try:
+        r = subprocess.run(
+            ["bash", "-c",
+             f"cd {build_root} && find . -name out -prune -o "
+             r"\( -name 'Android.bp' -o -name 'Android.mk' \) "
+             r"-printf '%P\t%T@\n' 2>/dev/null | head -200000"],
+            capture_output=True, text=True, timeout=120)
+        if r.returncode != 0 or not r.stdout.strip():
+            log.warn(f"stamp_manifest: find failed rc={r.returncode}")
+            return None
+        out_path.write_text(r.stdout, encoding="utf-8")
+        n = sum(1 for line in r.stdout.splitlines() if line.strip())
+        log.ok(f"cut mtime manifest: {n} entries -> {out_path.name}")
+        return out_path if n > 0 else None
+    except Exception as e:
+        log.warn(f"stamp_manifest failed: {e}")
+        return None
+
+
+def _safe_rel_path(rel: str) -> bool:
+    """Reject manifest paths that could escape the tree on re-stamp."""
+    if not rel or rel.startswith("/") or ".." in rel.split("/"):
+        return False
+    if any(c in rel for c in ("\n", "\r", "\x00", "'")):
+        return False
+    return True
+
+
+def normalize_tree_mtimes(build_root: Path, manifest: Path) -> int:
+    """Re-stamp every listed .bp/.mk to its recorded mint-time mtime.
+
+    Batches paths by timestamp (git-checkout-style clusters make this
+    ~100-300 touch invocations for 80k files, well under 30 s).
+    Content-identity makes this sound: the graph was generated from this
+    exact (src-snapshot + patch-set) content."""
+    import collections
+    groups: "collections.defaultdict[int, List[str]]" = collections.defaultdict(list)
+    try:
+        text = manifest.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        log.warn(f"normalize_tree_mtimes: cannot read {manifest}: {e}")
+        return 0
+    for line in text.splitlines():
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) != 2:
+            continue
+        rel, ts_raw = parts
+        if not _safe_rel_path(rel):
+            continue
+        try:
+            ts = int(float(ts_raw))
+        except ValueError:
+            continue
+        groups[ts].append(rel)
+    total = 0
+    for ts, paths in sorted(groups.items()):
+        for i in range(0, len(paths), 400):
+            batch = paths[i:i + 400]
+            if not batch:
+                continue
+            try:
+                subprocess.run(["touch", "-c", "-d", f"@{ts}", *batch],
+                               cwd=str(build_root),
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=60)
+                total += len(batch)
+            except Exception:
+                pass
+    return total
+
+
 def validate_lunch(plan: Plan, build_root: Path) -> None:
     """Product resolution check BEFORE burning build hours (upstream 02)."""
     envsetup = build_root / "build" / "envsetup.sh"

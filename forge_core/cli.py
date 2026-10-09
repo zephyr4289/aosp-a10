@@ -333,12 +333,19 @@ def _run_single_slice(plan, store, build_root: Path, budget: int, args, use_ccac
     log.out("rom_zip", str(rom_zip) if rom_zip else "")
     engine.slice_summary(res, log_file, build_root / "out", budget)
 
-    # Bank graph if soong created build.ninja and mhash exists
+    # Bank graph if the analysis produced one and mhash exists — fresh
+    # mints also cut + bank the deterministic-tree mtime manifest (P0-3)
     src_tag = t.get("src_tag", "")
     mhash = src_tag.replace("src-", "") if src_tag.startswith("src-") else getattr(plan, "mhash", "")
     if mhash:
         try:
-            graph.bank_graph(build_root, store, mhash, plan.rom.lunch)
+            gtag = graph.graph_tag(mhash, plan.rom.lunch)
+            fresh_mint = not store.exists(gtag)
+            if graph.bank_graph(build_root, store, mhash, plan.rom.lunch) and fresh_mint:
+                mf = syncer.stamp_manifest(build_root)
+                if mf:
+                    store.upload_file(gtag, mf, syncer.SRC_MTIME_MANIFEST)
+                    log.ok("P0-3: mint cut + banked the mtime manifest")
         except Exception:
             pass
 
@@ -405,6 +412,38 @@ def _run_single_slice(plan, store, build_root: Path, budget: int, args, use_ccac
     return 1
 
 
+def _normalize_tree_mtimes(plan, build_root: Path, store, src_tag: str) -> None:
+    """P0-3: re-stamp .bp/.mk mtimes to the graph-mint manifest so the G3
+    freshness check and ninja's restat see the exact tree the frozen graph
+    was generated from (byte-identical content; only mtimes lie)."""
+    mhash = src_tag.replace("src-", "") if src_tag.startswith("src-") else getattr(plan, "mhash", "")
+    if not mhash:
+        return
+    gtag = graph.graph_tag(mhash, plan.rom.lunch)
+    if not store.exists(gtag):
+        log.log("P0-3: no graph bank yet — mtime normalization deferred "
+                "(the first mint will cut the manifest)")
+        return
+    try:
+        tmp = Path(".forge-tmp-mtime")
+        tmp.mkdir(parents=True, exist_ok=True)
+        mf = store.download_file(gtag, syncer.SRC_MTIME_MANIFEST, tmp)
+    except Exception as e:
+        log.warn(f"P0-3: manifest fetch failed ({e}) — G3 may refuse the "
+                 "bypass on this slot")
+        return
+    try:
+        n = syncer.normalize_tree_mtimes(build_root, mf)
+        if n > 0:
+            log.ok(f"P0-3: normalized {n} .bp/.mk mtimes to mint-time manifest")
+        else:
+            log.warn("P0-3: manifest was empty or unreadable")
+    except Exception as e:
+        log.warn(f"P0-3: normalize failed ({e}) — G3 may refuse the bypass")
+    finally:
+        shutil.rmtree(".forge-tmp-mtime", ignore_errors=True)
+
+
 def cmd_slice(args, root: Path) -> int:
     plan = _plan_from_args(args, root)
     store = _store(args, root)
@@ -448,6 +487,10 @@ def cmd_slice(args, root: Path) -> int:
     syncer.ensure_device_repos(plan, build_root)
     syncer.apply_patches(plan, build_root, root)
     syncer.validate_lunch(plan, build_root)
+    # P0-3: AFTER all deliberate source mutations (patches, prebuilt
+    # fetches, device-repo sync), re-stamp .bp/.mk to the mint-time
+    # manifest so the restored frozen graph passes G3 + ninja restat.
+    _normalize_tree_mtimes(plan, build_root, store, src_tag)
 
     use_ccache = plan.rom.env.get("USE_CCACHE") == "1"
     budget = int(args.budget_s or plan.rom.slice_build_seconds)
@@ -494,7 +537,16 @@ def cmd_slice(args, root: Path) -> int:
         minted = False
         if mhash:
             try:
+                gtag = graph.graph_tag(mhash, plan.rom.lunch)
+                fresh_mint = not store.exists(gtag)
                 minted = graph.bank_graph(build_root, store, mhash, plan.rom.lunch)
+                if minted and fresh_mint:
+                    # P0-3: cut the deterministic-tree mtime manifest from
+                    # the exact tree the analysis just consumed
+                    mf = syncer.stamp_manifest(build_root)
+                    if mf:
+                        store.upload_file(gtag, mf, syncer.SRC_MTIME_MANIFEST)
+                        log.ok("P0-3: mint cut + banked the mtime manifest")
             except Exception as e:
                 log.warn(f"graph mint attempt failed: {e}")
         if minted:
