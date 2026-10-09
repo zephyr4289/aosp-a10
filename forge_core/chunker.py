@@ -13,6 +13,7 @@ missing -> stage mode.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import os
 import queue
@@ -21,7 +22,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 PART_BYTES = 1900 * 1024 * 1024  # GitHub release assets cap at 2 GiB per file
 
@@ -287,12 +288,14 @@ def unpack(parts_dir: Path, prefix: str, dest: Path, strip: bool = False,
 
 def unpack_from_store(store, tag: str, prefix: str, dest: Path,
                       strip: bool = False, tmp_dir: Optional[Path] = None,
-                      prefetch: int = 2,
+                      prefetch: int = 4,
+                      max_workers: int = 4,
                       extra_tar_args: Optional[List[str]] = None) -> None:
-    """Stream-download and unpack parts directly from store to dest.
+    """Stream-download and unpack parts directly from store to dest using parallel streams.
 
-    Prefetches up to `prefetch` parts concurrently in the background, overlapping
-    network downloads with decompression while keeping disk usage bounded.
+    Downloads up to `max_workers` parts concurrently in background worker threads,
+    verifies SHA256 integrity on the fly, and pipelines them into a multi-threaded
+    zstd decompressor and tar extraction engine while keeping disk footprint bounded.
     """
     tmp_dir = tmp_dir or (dest.parent / f".forge-dl-{prefix}-stream")
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -330,26 +333,45 @@ def unpack_from_store(store, tag: str, prefix: str, dest: Path,
     feeder_error: List[str] = []
     prefetch_q: queue.Queue = queue.Queue(maxsize=max(1, prefetch))
     stop_event = threading.Event()
+    total = len(part_names)
+
+    def _download_task(idx: int, name: str) -> Tuple[int, Path, Optional[str]]:
+        if stop_event.is_set():
+            return (idx, tmp_dir / name, "cancelled")
+        part_path = tmp_dir / name
+        now_str = time.strftime("%H:%M:%S")
+        print(f"[{now_str}] [RESTORE] downloading {prefix} part {idx}/{total}: {name} (parallel stream) ...", flush=True)
+        store.download_file(tag, name, part_path)
+        if name in expected_sums:
+            got_h = _hash_file(part_path)
+            if got_h != expected_sums[name]:
+                err = f"sha256 mismatch for {name}: expected {expected_sums[name]} got {got_h}"
+                part_path.unlink(missing_ok=True)
+                return (idx, part_path, err)
+        return (idx, part_path, None)
 
     def downloader():
         try:
-            total = len(part_names)
-            for idx, name in enumerate(part_names, 1):
-                if stop_event.is_set():
-                    break
-                part_path = tmp_dir / name
-                now_str = time.strftime("%H:%M:%S")
-                print(f"[{now_str}] [RESTORE] downloading {prefix} part {idx}/{total}: {name} ...", flush=True)
-                store.download_file(tag, name, part_path)
-                if name in expected_sums:
-                    got_h = _hash_file(part_path)
-                    if got_h != expected_sums[name]:
-                        err = f"sha256 mismatch for {name}: expected {expected_sums[name]} got {got_h}"
+            num_workers = min(total, max(1, max_workers))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+                futures = {}
+                for idx, name in enumerate(part_names, 1):
+                    if stop_event.is_set():
+                        break
+                    futures[idx] = executor.submit(_download_task, idx, name)
+
+                for idx in range(1, total + 1):
+                    if stop_event.is_set():
+                        break
+                    fut = futures.get(idx)
+                    if fut is None:
+                        break
+                    idx_res, part_path, err = fut.result()
+                    if err:
                         feeder_error.append(err)
-                        part_path.unlink(missing_ok=True)
                         prefetch_q.put((None, None, err))
                         return
-                prefetch_q.put((idx, part_path, None))
+                    prefetch_q.put((idx_res, part_path, None))
         except Exception as e:
             feeder_error.append(str(e))
             prefetch_q.put((None, None, str(e)))
@@ -358,7 +380,6 @@ def unpack_from_store(store, tag: str, prefix: str, dest: Path,
 
     def feeder():
         try:
-            total = len(part_names)
             while True:
                 idx, part_path, err = prefetch_q.get()
                 if err:
@@ -369,7 +390,7 @@ def unpack_from_store(store, tag: str, prefix: str, dest: Path,
                 now_str = time.strftime("%H:%M:%S")
                 print(f"[{now_str}] [RESTORE] decompressing {prefix} part {idx}/{total} ...", flush=True)
                 with open(part_path, "rb") as fh:
-                    shutil.copyfileobj(fh, dec.stdin, length=16 * 1024 * 1024)
+                    shutil.copyfileobj(fh, dec.stdin, length=32 * 1024 * 1024)
                 part_path.unlink(missing_ok=True)
                 print(f"[{time.strftime('%H:%M:%S')}] [RESTORE] unpacked part {idx}/{total} into destination", flush=True)
         except Exception as e:
