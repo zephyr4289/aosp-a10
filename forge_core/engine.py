@@ -581,7 +581,7 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                     ram_used_pct = ((tot_kb - avail_kb) / tot_kb * 100.0) if tot_kb > 0 else 0.0
 
                     if (sw_used_pct > 70.0 or (ram_used_pct > 80.0 and sw_used_pct > 40.0)):
-                        if len(dynamic_swap_chunks) < 2:
+                        if len(dynamic_swap_chunks) < 4:
                             snap = storage.snapshot(build_root)
                             if snap.physical_free_gb > 12.0:
                                 idx = len(dynamic_swap_chunks) + 1

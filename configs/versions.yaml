@@ -113,7 +113,7 @@
     - build-essential
     - python-is-python3
   env: { LC_ALL: "C" }
-  swap_gb: 8
+  swap_gb: 16
   sync_jobs: 16
   expected_source_gb: 60
   cold_hours_4vcpu: 24
@@ -133,7 +133,7 @@
     - build-essential
     - python-is-python3
   env: { LC_ALL: "C" }
-  swap_gb: 8
+  swap_gb: 16
   sync_jobs: 16
   expected_source_gb: 65
   cold_hours_4vcpu: 28
@@ -153,7 +153,7 @@
     - build-essential
     - python-is-python3
   env: { LC_ALL: "C" }
-  swap_gb: 8
+  swap_gb: 16
   sync_jobs: 16
   expected_source_gb: 70
   cold_hours_4vcpu: 32
@@ -177,7 +177,7 @@
     - build-essential
     - python-is-python3
   env: { LC_ALL: "C" }
-  swap_gb: 8
+  swap_gb: 16
   sync_jobs: 16
   expected_source_gb: 75
   cold_hours_4vcpu: 32

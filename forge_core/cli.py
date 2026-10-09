@@ -213,8 +213,11 @@ def cmd_prepare(args, root: Path) -> int:
             log.warn("zram UNAVAILABLE on this runner — memory shield degraded: "
                      "analysis phase will run with disk-swap-only bounds")
         try:
+            target_swap = int(plan.version.get("swap_gb", 8))
+            if not zram_ok and plan.rom.android_version >= 14:
+                target_swap = max(target_swap, 16)
             swap_path = str(swap_dir / ".forge-swap")
-            fenv.ensure_swap(swap_path, size_gb=int(plan.version.get("swap_gb", 4)))
+            fenv.ensure_swap(swap_path, size_gb=target_swap)
         except Exception:
             pass
         try:
