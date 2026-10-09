@@ -80,16 +80,15 @@ class TestOomSwap(unittest.TestCase):
         self.assertEqual(env_boot.get("GOMEMLIMIT"), "3GiB")
         self.assertEqual(env_boot.get("GOGC"), "50")
 
-        # 3. Analysis phase: GOMEMLIMIT unset by default (prevents GC thrash), GOGC=400, gctrace on
+        # 3. Analysis phase: GOMEMLIMIT=12GiB, GOGC=60 to prevent AST heap bloat
         env_analysis = engine.build_env(plan, self.root / "build_test", phase="analysis")
-        self.assertNotIn("GOMEMLIMIT", env_analysis)
-        self.assertEqual(env_analysis.get("GOGC"), "400")
-        self.assertEqual(env_analysis.get("GODEBUG"), "gctrace=1")
+        self.assertEqual(env_analysis.get("GOMEMLIMIT"), "12GiB")
+        self.assertEqual(env_analysis.get("GOGC"), "60")
 
         # 4. Explicit override honored across phases
-        with patch.dict("os.environ", {"FORGE_SOONG_MEM_LIMIT": "12GiB"}):
+        with patch.dict("os.environ", {"FORGE_SOONG_MEM_LIMIT": "14GiB"}):
             env_override = engine.build_env(plan, self.root / "build_test", phase="analysis")
-            self.assertEqual(env_override["GOMEMLIMIT"], "12GiB")
+            self.assertEqual(env_override["GOMEMLIMIT"], "14GiB")
 
     def test_ensure_zram_lifecycle_and_fallback(self):
         """P1: ensure_zram sets up compressed swap device (lz4) and handles fallback gracefully."""

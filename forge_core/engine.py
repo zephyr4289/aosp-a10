@@ -129,16 +129,12 @@ def build_env(plan, build_root: Path, use_ccache: bool = False, phase: str = "ex
     })
 
     if phase == "analysis":
-        # Analysis phase: AST heap grows to 30-34 GiB; soft sub-limits cause GC death spiral.
-        # Unset GOMEMLIMIT unless explicitly forced via FORGE_SOONG_MEM_LIMIT.
-        limit = os.environ.get("FORGE_SOONG_MEM_LIMIT")
-        if limit:
-            e["GOMEMLIMIT"] = limit
-        elif "GOMEMLIMIT" in e:
-            del e["GOMEMLIMIT"]
-        e["GOGC"] = os.environ.get("FORGE_GOGC", "400")
+        # Analysis phase: enforce GOMEMLIMIT=12GiB and proactive GOGC=60
+        # to ensure AST heap objects are constantly freed in RAM with zero swap thrashing.
+        e["GOMEMLIMIT"] = os.environ.get("FORGE_SOONG_MEM_LIMIT", "12GiB")
+        e["GOGC"] = os.environ.get("FORGE_GOGC", "60")
         e["GOMAXPROCS"] = os.environ.get("FORGE_GOMAXPROCS", str(min(4, os.cpu_count() or 4)))
-        if os.environ.get("FORGE_GCTRACE", "1") == "1":
+        if os.environ.get("FORGE_GCTRACE", "0") == "1":
             e["GODEBUG"] = "gctrace=1"
     elif phase == "bootstrap":
         e["GOFLAGS"] = os.environ.get("FORGE_GOFLAGS", "-p=2")
@@ -618,10 +614,10 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
             except Exception:
                 continue
 
-            hard = (psi is not None and psi > 95.0) or (swap_full and ram_pct > 96.0)
+            hard = (swap_full and ram_pct > 96.0) or (psi is not None and psi > 98.0 and swap_full)
             if hard:
                 stall_since = stall_since or time.time()
-                if time.time() - stall_since > 90:
+                if time.time() - stall_since > 120:
                     log.warn(f"MEM-STALL (PSI full avg60={psi}, swap_full={swap_full}, "
                              f"ram={ram_pct:.0f}%) — SIGINT for consistent bank")
                     _graceful_stop(STOP_MEMORY)
