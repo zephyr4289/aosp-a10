@@ -13,6 +13,10 @@ Contract (forge.yml implements exactly this):
       - classification 'sliced'  -> re-dispatch the workflow (next run
         resumes at the banked state; slots are idempotent and early-exit
         once done). Unlimited 350-min job walls, ~6 slices per run.
+      - classification 'mem-stall' -> re-dispatch ONCE (the next slot
+        may land better hardware or a banked graph — P0-6), then RED:
+        a fatal condition treated as resumable progress forever is
+        exactly the six-run crash loop of runs #58-#63 (R7).
       - classification 'capacity'-> RED. Refusing to loop is the fix for
         the storage deadlock: a slice that died on disk pressure will die
         identically next time; burning 30 min/loop forever is the old bug.
@@ -25,6 +29,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 DEFAULT_MAX_SLICES = 24
+DEFAULT_MEM_STALL_RETRIES = 1
 PHASES = ("slice", "verify", "fail")
 
 
@@ -41,6 +46,18 @@ def next_action(target: Dict, max_slices: int = DEFAULT_MAX_SLICES) -> Dict[str,
         return {"phase": "slice",
                 "reason": "strict mining: no builder candidate won slot — "
                           "immediate conveyor re-dispatch for new lottery"}
+    if cls == "mem-stall":
+        retries = int(target.get("mem_stall_retries", 0) or 0)
+        if retries < DEFAULT_MEM_STALL_RETRIES:
+            return {"phase": "slice",
+                    "reason": "mem-stall: one re-dispatch allowed — the "
+                              "next slot may land better silicon or a "
+                              "banked graph (retry "
+                              f"{retries + 1}/{DEFAULT_MEM_STALL_RETRIES + 1})"}
+        return {"phase": "fail",
+                "reason": "memory envelope exhausted (mem-stall x"
+                          f"{retries + 1}) — mint the graph via turbo or "
+                          "grow capacity (docs/UNFREEZE_RUNBOOK.md)"}
     if cls == "capacity":
         return {"phase": "fail",
                 "reason": "last slice stopped on DISK CAPACITY — refusing to "

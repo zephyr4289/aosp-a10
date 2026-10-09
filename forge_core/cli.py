@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from . import __version__
 from . import chunker, config, dag, engine, env as fenv, gate as fgate
@@ -431,11 +431,21 @@ def _run_single_slice(plan, store, build_root: Path, budget: int, args, use_ccac
         store.create(tag, f"out-state {plan.rom.key} slice {n} (post-error)",
                      "Exact-resume ninja state after a build error.")
     relay.bank(build_root, store, tag, plan.rom.key, n,
-               notes=f"slice {n}, classification=error")
+               notes=f"slice {n}, classification={res['classification']}")
+    # P0-6: record the ACTUAL classification (mem-stall ≠ error — the DAG
+    # re-dispatches mem-stall once, then reds out; the error path used to
+    # hardcode 'error', hiding the crash-loop signal from the conveyor)
+    cls_final = str(res["classification"])
+    extra: Dict[str, object] = {}
+    if cls_final == "mem-stall":
+        extra["mem_stall_retries"] = int(t.get("mem_stall_retries", 0) or 0) + 1
     store.target_update(plan.rom.key, slice=n, state_tag=tag,
-                        last_classification="error",
-                        stop_reason=str(res.get("stop_reason", "")))
-    return 1
+                        last_classification=cls_final,
+                        stop_reason=str(res.get("stop_reason", "")), **extra)
+    # mem-stall exits GREEN from the slot itself (state IS banked — incl.
+    # the graph-first flush; the postcheck reads INDEX and the DAG decides
+    # whether the conveyor loops or reds out)
+    return 0 if cls_final == "mem-stall" else 1
 
 
 def _normalize_tree_mtimes(plan, build_root: Path, store, src_tag: str) -> None:
@@ -497,6 +507,22 @@ def cmd_slice(args, root: Path) -> int:
                  "prune the working set, then --force.")
         log.out("classification", "capacity")
         return 1
+
+    # ---- 0. mem-stall halt: the six-run crash-loop guard (P0-6) -------------
+    # A mem-stall death gets ONE re-dispatch (next slot may land better
+    # silicon or a banked graph); beyond that, re-running reproduces the
+    # same 32.6 GiB-vs-32.6 GiB death forever — runs #58-#63 burned 9.5
+    # runner-hours on exactly this loop.
+    if t.get("last_classification") == "mem-stall" and not args.force:
+        retries = int(t.get("mem_stall_retries", 0) or 0)
+        if retries >= 1:
+            log.warn("INDEX says the last slice stopped on MEM-STALL x"
+                     f"{retries + 1} — refusing to re-run (crash-loop "
+                     "guard). Mint the graph via a turbo job (it survives "
+                     "the analysis: 25 GiB swap + 55 GiB disk) or grow "
+                     "capacity, then --force.")
+            log.out("classification", "mem-stall")
+            return 1
 
     # ---- 1. storage volume + tree --------------------------------------------
     vol = _ensure_volume(args)
@@ -676,6 +702,10 @@ def cmd_slice(args, root: Path) -> int:
             return 0
         if cur_t.get("last_classification") == "capacity" and not args.force:
             log.warn("fusion loop: capacity stopped — ending job")
+            return 0
+        if cur_t.get("last_classification") == "mem-stall":
+            log.warn("fusion loop: mem-stall — memory envelope exhausted "
+                     "for this job, ending (the DAG decides re-dispatch)")
             return 0
 
         this_slice_budget = min(budget, int(rem - BANK_RESERVE_S))
