@@ -216,50 +216,98 @@ def optimal_jobs(plan) -> int:
 NINJA_BYPASS_STATUS = "[%p %f/%t] "
 
 
-def bypass_ready(build_root: Path) -> Optional[Path]:
-    """Return the combined ninja file Path if Direct Ninja Bypass is safe, else None.
+def discover_graph(build_root: Path) -> Optional[Dict[str, Path]]:
+    """Discover the frozen ninja graph files wherever this tree keeps them.
 
-    Checks the 7 invariants:
-      G0: kill-switch FORGE_NINJA_BYPASS != '0'
-      G1: frozen graphs present (out/combined-*.ninja, out/soong/build.ninja, out/build-*.ninja)
-      G1b: incremental state present (out/.ninja_log, out/.ninja_deps)
-      G2: ninja binary available in prebuilts or PATH
-      G3: no .bp / .mk file is newer than out/soong/build.ninja
+    R1 fix (OVERHAUL.md P0-1): A17/LineageOS 23.2 trees emit PER-TARGET
+    Soong artifact names — out/soong/build.<product>.ninja,
+    out/soong/soong.<product>.variables,
+    out/soong/soong.environment.used.<product>.build — while the classic
+    layout used unsuffixed names. Hardcoding either spelling breaks the
+    other tree; globs survive both (and future renames).
     """
-    if os.environ.get("FORGE_NINJA_BYPASS", "1") == "0":
-        return None
     out = build_root / "out"
-    if not out.exists():
-        return None
-    combined = sorted(out.glob("combined-*.ninja"))
-    soong_ninja = out / "soong" / "build.ninja"
-    kati = [p for p in out.glob("build-*.ninja")]
-    if not combined or not soong_ninja.exists() or not kati:
+    soong = out / "soong"
+    graphs = sorted(soong.glob("build*.ninja"))     # build.ninja | build.<product>.ninja
+    combined = sorted(out.glob("combined*.ninja"))  # combined-<product>.ninja (any spelling)
+    kati = sorted(p for p in out.glob("build-*.ninja") if p.is_file())
+    if not graphs or not combined or not kati:
+        log.warn("bypass G1 REFUSED: soong graph="
+                 f"{[g.name for g in graphs]} combined="
+                 f"{[c.name for c in combined]} kati="
+                 f"{[k.name for k in kati]} — falling back to soong_ui")
         return None
     for required in (out / ".ninja_log", out / ".ninja_deps"):
         if not required.exists():
+            log.warn(f"bypass G1b REFUSED: missing {required.name} — no "
+                     "incremental state, falling back to soong_ui")
             return None
-    ninja_bin = build_root / "prebuilts/build-tools/linux-x86/bin/ninja"
-    if not ninja_bin.exists():
-        if not shutil.which("ninja"):
-            return None
-    graph_mtime = soong_ninja.stat().st_mtime
-    # G3: check freshness of Android.bp / Android.mk vs graph mtime
+    return {"soong": graphs[0], "combined": combined[0], "kati": kati[0]}
+
+
+def newest_bp_mk(build_root: Path) -> Optional[tuple]:
+    """(path, mtime) of the newest Android.bp/Android.mk outside out/.
+
+    Returns None if the find probe fails (unknown freshness)."""
     try:
         r = subprocess.run(
             ["bash", "-c",
              f"cd {build_root} && find . -maxdepth 6 -name 'out' -prune -o "
-             r"\( -name 'Android.bp' -o -name 'Android.mk' \) -printf '%T@\n' 2>/dev/null "
+             r"\( -name 'Android.bp' -o -name 'Android.mk' \) -printf '%T@\t%p\n' 2>/dev/null "
              "| sort -rn | head -1"],
             capture_output=True, text=True, timeout=30)
         if r.returncode == 0 and r.stdout.strip():
-            latest_mtime = float(r.stdout.strip())
-            if latest_mtime > graph_mtime + 1.0:
-                log.log(f"bypass: .bp/.mk newer than graph ({latest_mtime:.1f} > {graph_mtime:.1f}) — falling back to soong")
-                return None
+            line = r.stdout.strip().split("\t", 1)
+            if len(line) == 2:
+                return (line[1].lstrip("./"), float(line[0]))
+            return (None, float(line[0]))
     except Exception:
         pass
-    return combined[0]
+    return None
+
+
+def bypass_ready(build_root: Path) -> Optional[Path]:
+    """Return the combined ninja file Path if Direct Ninja Bypass is safe, else None.
+
+    Checks the invariants — and every refusal is LOUD (R6 fix: no defense
+    may fail silently; each gate logs its invariant, verdict, fallback):
+      G0 : kill-switch FORGE_NINJA_BYPASS != '0'
+      G1 : frozen graphs present (discovered — product-suffixed or classic)
+      G1b: incremental state present (out/.ninja_log, out/.ninja_deps)
+      G2 : ninja binary available in prebuilts or PATH
+      G3 : no .bp / .mk file newer than the discovered soong graph
+    """
+    if os.environ.get("FORGE_NINJA_BYPASS", "1") == "0":
+        log.warn("bypass G0 REFUSED: FORGE_NINJA_BYPASS=0 (kill-switch)")
+        return None
+    out = build_root / "out"
+    if not out.exists():
+        log.warn("bypass G1 REFUSED: no out/ directory (cold start) — "
+                 "this slot will run full soong_ui")
+        return None
+    graphs = discover_graph(build_root)
+    if not graphs:
+        return None
+    soong_ninja = graphs["soong"]
+    ninja_bin = build_root / "prebuilts/build-tools/linux-x86/bin/ninja"
+    if not ninja_bin.exists() and not shutil.which("ninja"):
+        log.warn(f"bypass G2 REFUSED: no ninja at {ninja_bin} nor in PATH "
+                 "— falling back to soong_ui")
+        return None
+    graph_mtime = soong_ninja.stat().st_mtime
+    # G3: check freshness of Android.bp / Android.mk vs graph mtime
+    probe = newest_bp_mk(build_root)
+    if probe is not None:
+        _, latest_mtime = probe
+        if latest_mtime > graph_mtime + 1.0:
+            log.warn(f"bypass G3 REFUSED: Android.bp/Android.mk newer than "
+                     f"{soong_ninja.name} ({latest_mtime:.1f} > {graph_mtime:.1f}) "
+                     "— graph stale, falling back to soong (P0-3 mtime "
+                     "normalization exists to prevent exactly this)")
+            return None
+    log.ok(f"bypass G1..G3 PASS: soong graph={soong_ninja.name}, "
+           f"combined={graphs['combined'].name} — direct ninja engaged")
+    return graphs["combined"]
 
 
 def _launcher(plan, soong_ui: Path, jobs: int, target: str,
@@ -326,11 +374,20 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
     jobs = optimal_jobs(plan)
     log.log(f"dynamic parallel jobs: -j {jobs}")
 
-    # Check for direct ninja bypass readiness (§3)
+    # Check for direct ninja bypass readiness (§3) — every refusal is
+    # logged by bypass_ready itself (R6: no silent fallbacks). When we fall
+    # back to soong_ui, say WHY in the mode line so the job summary
+    # surfaces it (a restored state must never silently re-enter the
+    # 32.6 GiB fused analysis).
     combined = bypass_ready(build_root)
     mode = "ninja-direct" if combined else "soong"
-    log.ok(f"slice mode: {mode} "
-           f"({'bypassing soong_ui entirely' if combined else 'full soong_ui pipeline'})")
+    if combined:
+        log.ok(f"slice mode: {mode} (bypassing soong_ui entirely — "
+               f"frozen graph {combined.name})")
+    else:
+        log.warn(f"slice mode: {mode} (full soong_ui pipeline — a gate "
+                 "refusal above explains why; expect the fused analysis "
+                 "memory envelope)")
 
     e = build_env(plan, build_root, use_ccache=use_ccache, phase="exec" if combined else "analysis")
     e["NINJA_ARGS"] = f"-j {jobs}"
@@ -765,9 +822,10 @@ def explain_dirty_graph(build_root: Path) -> Optional[str]:
     """Diagnostic probe (P0.3): run ninja -d explain -n to inspect why a restored graph is dirty."""
     out = build_root / "out"
     bootstrap_ninja = out / "soong" / ".bootstrap" / "build.ninja"
-    soong_ninja = out / "soong" / "build.ninja"
-    if not (bootstrap_ninja.exists() and soong_ninja.exists()):
+    graphs = discover_graph(build_root)
+    if not (bootstrap_ninja.exists() and graphs):
         return None
+    soong_ninja = graphs["soong"]
     ninja_bin = build_root / "prebuilts/build-tools/linux-x86/bin/ninja"
     ninja_cmd = str(ninja_bin) if ninja_bin.exists() else (shutil.which("ninja") or "ninja")
     try:
