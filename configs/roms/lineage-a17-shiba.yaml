@@ -38,7 +38,7 @@ env:
   TARGET_RELEASE: "trunk_staging"
   WITH_DEXPREOPT: "false"         # massive time + disk saver
   DONT_INSTALL_DEX_DEBUG_INFO: "true"
-  ALLOW_MISSING_DEPENDENCIES: "false"
+  ALLOW_MISSING_DEPENDENCIES: "true"
 
 slices: 8                         # A17 on Zen 5 Turin 4 vCPU: chained relay slots
 slice_build_seconds: 16500

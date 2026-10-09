@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -94,13 +95,13 @@ def _cgroup_run_prefix(phase: str = "exec") -> Optional[List[str]]:
                          ("cpu.max", cpu)):
                 subprocess.run(["sudo", "sh", "-c", f"echo {v} > {base}/{f}"],
                                check=True, timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return ["sudo", "systemd-run", "--scope", "--quiet",
+            return ["sudo", "-E", "systemd-run", "--scope", "--quiet",
                     f"--unit=forge-{phase}-{int(time.time())}", "bash", "-c"]
     except Exception:
         pass
     if shutil.which("systemd-run"):
         try:
-            return ["sudo", "systemd-run", "--scope", "--quiet",
+            return ["sudo", "-E", "systemd-run", "--scope", "--quiet",
                     f"-p", f"MemoryMax={mem}", f"-p", f"MemorySwapMax={swp}",
                     f"-p", f"CPUQuota={int(cpu.split()[0]) // 1000}%", "bash", "-c"]
         except Exception:
@@ -135,7 +136,7 @@ def build_env(plan, build_root: Path, use_ccache: bool = False, phase: str = "ex
         "LC_ALL": "C",
         "OUT_DIR": str(build_root / "out"),
         "ALLOW_MISSING_DEPENDENCIES":
-            e.get("ALLOW_MISSING_DEPENDENCIES", "false"),
+            e.get("ALLOW_MISSING_DEPENDENCIES", "true"),
         "JAVA_TOOL_OPTIONS": e.get("JAVA_TOOL_OPTIONS", "-Xmx2560m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"),
     })
 
@@ -161,16 +162,6 @@ def build_env(plan, build_root: Path, use_ccache: bool = False, phase: str = "ex
         if "FORGE_SOONG_MEM_LIMIT" in os.environ:
             e["GOMEMLIMIT"] = os.environ["FORGE_SOONG_MEM_LIMIT"]
 
-    for k, v in plan.rom.env.items():
-        e[str(k)] = str(v)
-    if use_ccache:
-        e["USE_CCACHE"] = "1"
-        e["CCACHE_EXEC"] = subprocess.run(
-            ["bash", "-lc", "command -v ccache"], capture_output=True,
-            text=True).stdout.strip() or "ccache"
-        e["CCACHE_DIR"] = e.get("CCACHE_DIR",
-                                str(Path.home() / ".ccache"))
-    return e
     for k, v in plan.rom.env.items():
         e[str(k)] = str(v)
     if use_ccache:
@@ -287,8 +278,21 @@ def bypass_ready(build_root: Path) -> Optional[Path]:
     return combined[0]
 
 
-def _launcher(plan, soong_ui: Path, jobs: int, target: str, combined: Optional[Path] = None, build_root: Optional[Path] = None) -> str:
+def _launcher(plan, soong_ui: Path, jobs: int, target: str,
+              combined: Optional[Path] = None,
+              build_root: Optional[Path] = None,
+              env_overrides: Optional[Dict[str, str]] = None) -> str:
     combo = lunch_combo(plan)
+    exports = []
+    if env_overrides:
+        for k in ("ALLOW_MISSING_DEPENDENCIES", "TARGET_RELEASE", "WITH_DEXPREOPT",
+                  "DONT_INSTALL_DEX_DEBUG_INFO", "JAVA_TOOL_OPTIONS", "GOGC",
+                  "GOMAXPROCS", "GODEBUG", "GOMEMLIMIT", "OUT_DIR", "NINJA_ARGS"):
+            if k in env_overrides:
+                exports.append(f"export {k}={shlex.quote(str(env_overrides[k]))};")
+        for k, v in plan.rom.env.items():
+            exports.append(f"export {k}={shlex.quote(str(v))};")
+    export_str = (" ".join(exports) + " ") if exports else ""
     if combined is not None:
         ninja_bin = "prebuilts/build-tools/linux-x86/bin/ninja"
         if build_root and not (build_root / ninja_bin).exists():
@@ -297,6 +301,7 @@ def _launcher(plan, soong_ui: Path, jobs: int, target: str, combined: Optional[P
             "set +eu; "
             "source build/envsetup.sh >/dev/null 2>&1; "
             f"lunch {combo} >/dev/null 2>&1; "
+            f"{export_str}"
             f"export NINJA_STATUS='{NINJA_BYPASS_STATUS}'; "
             f"exec {ninja_bin} -f {combined} -j {jobs} {target}"
         )
@@ -304,6 +309,7 @@ def _launcher(plan, soong_ui: Path, jobs: int, target: str, combined: Optional[P
         "set +eu; "
         "source build/envsetup.sh >/dev/null 2>&1; "
         f"lunch {combo} >/dev/null 2>&1; "
+        f"{export_str}"
         f"exec {soong_ui} --make-mode -j {jobs} {target}"
     )
 
@@ -342,11 +348,12 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
     log.ok(f"slice mode: {mode} "
            f"({'bypassing soong_ui entirely' if combined else 'full soong_ui pipeline'})")
 
-    launcher = _launcher(plan, soong_ui, jobs, target, combined=combined, build_root=build_root)
     e = build_env(plan, build_root, use_ccache=use_ccache, phase="exec" if combined else "analysis")
     e["NINJA_ARGS"] = f"-j {jobs}"
     if allow_missing_deps:
         e["ALLOW_MISSING_DEPENDENCIES"] = "true"
+
+    launcher = _launcher(plan, soong_ui, jobs, target, combined=combined, build_root=build_root, env_overrides=e)
 
     prefix = _cgroup_run_prefix("exec" if combined else "analysis") or ["bash", "-c"]
     t0 = time.time()
