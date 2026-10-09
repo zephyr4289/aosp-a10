@@ -204,13 +204,22 @@ def cmd_prepare(args, root: Path) -> int:
     except Exception:
         pass
     if plan:
+        zram_ok = False
         try:
-            fenv.ensure_zram(8)
+            zram_ok = fenv.ensure_zram(6, algo="lz4")
         except Exception:
             pass
+        if not zram_ok:
+            log.warn("zram UNAVAILABLE on this runner — memory shield degraded: "
+                     "analysis phase will run with disk-swap-only bounds")
         try:
             swap_path = str(swap_dir / ".forge-swap")
             fenv.ensure_swap(swap_path, size_gb=int(plan.version.get("swap_gb", 4)))
+        except Exception:
+            pass
+        try:
+            topo = fenv.swap_topology_summary()
+            log.out("swap_topology", topo)
         except Exception:
             pass
         try:
@@ -519,6 +528,11 @@ def cmd_slice(args, root: Path) -> int:
             log.ok(f"turbo state {tag} exists — skipping")
             log.out("classification", "done")
             return 0
+        # Restore banked graph for turbo slots to bypass Soong analysis on cold out/
+        if not (build_root / "out" / "soong" / "build.ninja").exists():
+            mhash = src_tag.replace("src-", "") if src_tag.startswith("src-") else getattr(plan, "mhash", "")
+            if mhash:
+                graph.restore_graph(build_root, store, mhash, plan.rom.lunch)
         res = engine.run_slice(plan, build_root, target, budget,
                                Path(args.log or "/tmp/forge-turbo.log"),
                                use_ccache=use_ccache, allow_missing_deps=True)

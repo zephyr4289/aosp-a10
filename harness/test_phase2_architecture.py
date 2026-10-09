@@ -141,6 +141,60 @@ class TestPhase2Architecture(unittest.TestCase):
             final_t = fs.target(rom.key)
             self.assertTrue(final_t.get("done"))
 
+    def test_bypass_ready_invariants(self):
+        """P2: engine.bypass_ready validates all 7 invariants before enabling direct ninja."""
+        from forge_core import engine
+        build_root = self.tmp / "aosp_bypass"
+        out_dir = build_root / "out"
+        soong_dir = out_dir / "soong"
+        soong_dir.mkdir(parents=True, exist_ok=True)
+        (build_root / "prebuilts" / "build-tools" / "linux-x86" / "bin").mkdir(parents=True, exist_ok=True)
+        ninja_bin = build_root / "prebuilts" / "build-tools" / "linux-x86" / "bin" / "ninja"
+        ninja_bin.write_bytes(b"ELF ninja")
+
+        combined_ninja = out_dir / "combined-lineage_shiba.ninja"
+        soong_ninja = soong_dir / "build.ninja"
+        kati_ninja = out_dir / "build-lineage_shiba.ninja"
+        ninja_log = out_dir / ".ninja_log"
+        ninja_deps = out_dir / ".ninja_deps"
+
+        # 1. Incomplete out/ -> None
+        self.assertIsNone(engine.bypass_ready(build_root))
+
+        # 2. Populate all required graph files
+        combined_ninja.write_text("subninja out/soong/build.ninja\n")
+        soong_ninja.write_text("rule cc\n")
+        kati_ninja.write_text("rule kati\n")
+        ninja_log.write_text("# ninja log v5\n")
+        ninja_deps.write_bytes(b"ninja deps")
+
+        # 3. Kill-switch check (G0)
+        with patch.dict("os.environ", {"FORGE_NINJA_BYPASS": "0"}):
+            self.assertIsNone(engine.bypass_ready(build_root))
+
+        # 4. All invariants satisfied -> returns combined ninja file
+        res = engine.bypass_ready(build_root)
+        self.assertIsNotNone(res)
+        self.assertEqual(res, combined_ninja)
+
+    def test_launcher_generation_direct_vs_soong(self):
+        """P2: engine._launcher generates exact direct ninja execution vs soong_ui."""
+        from forge_core import engine
+        plan = config.build_plan(self.root, self.root / "configs" / "roms" / "qassa-a10.yaml")
+        soong_ui = Path("/fake/soong_ui.bash")
+        combined = Path("out/combined-qassa.ninja")
+
+        # Direct ninja bypass launcher
+        cmd_direct = engine._launcher(plan, soong_ui, jobs=8, target="bacon", combined=combined)
+        self.assertIn("export NINJA_STATUS='[%p %f/%t] ';", cmd_direct)
+        self.assertIn("-f out/combined-qassa.ninja -j 8 bacon", cmd_direct)
+        self.assertNotIn("--make-mode", cmd_direct)
+
+        # Standard soong_ui pipeline launcher
+        cmd_soong = engine._launcher(plan, soong_ui, jobs=8, target="bacon", combined=None)
+        self.assertIn("exec /fake/soong_ui.bash --make-mode -j 8 bacon", cmd_soong)
+        self.assertNotIn("NINJA_STATUS", cmd_soong)
+
 
 if __name__ == "__main__":
     unittest.main()

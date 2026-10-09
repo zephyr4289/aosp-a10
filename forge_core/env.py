@@ -16,6 +16,7 @@ ROMForge's storage contract:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -217,9 +218,13 @@ def reclaim_disk() -> List[str]:
     return removed
 
 
-def protect_runner_processes() -> None:
+def protect_runner_processes(swappiness: int = 10) -> None:
     """Shield the GitHub Actions runner agent and build orchestrator from Linux OOM killer."""
-    _safe_run(["sudo", "sysctl", "-w", "vm.swappiness=60", "vm.vfs_cache_pressure=50"],
+    _safe_run(["sudo", "sysctl", "-w",
+               f"vm.swappiness={swappiness}",
+               "vm.page-cluster=0",
+               "vm.watermark_scale_factor=125",
+               "vm.vfs_cache_pressure=50"],
               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Set oom_score_adj to -1000 for all Runner and python orchestrator processes
     for proc_dir in Path("/proc").glob("[0-9]*"):
@@ -254,9 +259,64 @@ def _active_swap_gb() -> float:
     return 0.0
 
 
-def ensure_zram(size_gb: int = 8) -> bool:
+def swap_topology_report() -> Dict[str, object]:
+    """Inspect and return current swap devices, algorithms, priorities, and VM tuning."""
+    report: Dict[str, object] = {
+        "zram_active": False,
+        "zram_size_gb": 0.0,
+        "zram_algo": "unknown",
+        "disk_swap_gb": 0.0,
+        "total_swap_gb": _active_swap_gb(),
+        "devices": [],
+    }
+    try:
+        if os.path.exists("/proc/swaps"):
+            lines = Path("/proc/swaps").read_text(encoding="utf-8", errors="replace").splitlines()
+            for line in lines[1:]:
+                parts = line.split()
+                if len(parts) >= 5:
+                    dev_name, dev_type, sz_kb, used_kb, prio = parts[0], parts[1], parts[2], parts[3], parts[4]
+                    sz_gb = round(int(sz_kb) / (1024 * 1024), 2)
+                    report["devices"].append({
+                        "name": dev_name, "type": dev_type, "size_gb": sz_gb,
+                        "prio": int(prio)
+                    })
+                    if "zram" in dev_name:
+                        report["zram_active"] = True
+                        report["zram_size_gb"] = sz_gb
+                    else:
+                        report["disk_swap_gb"] = round(float(report["disk_swap_gb"]) + sz_gb, 2)
+    except Exception:
+        pass
+
+    try:
+        comp_file = Path("/sys/block/zram0/comp_algorithm")
+        if comp_file.exists():
+            comp_txt = comp_file.read_text(encoding="utf-8", errors="replace").strip()
+            # The active algorithm is bracketed, e.g. "lzo [lz4] zstd"
+            m = re.search(r"\[([a-zA-Z0-9_-]+)\]", comp_txt)
+            if m:
+                report["zram_algo"] = m.group(1)
+            else:
+                report["zram_algo"] = comp_txt
+    except Exception:
+        pass
+
+    return report
+
+
+def swap_topology_summary() -> str:
+    """Format a single-line auditable topology string for slot logs."""
+    topo = swap_topology_report()
+    zram_str = f"zram: {topo['zram_size_gb']}G ({topo['zram_algo']}, p100)" if topo["zram_active"] else "zram: OFF"
+    disk_str = f"disk: {topo['disk_swap_gb']}G (p10)" if topo["disk_swap_gb"] > 0 else "disk: none"
+    return f"{zram_str} | {disk_str} | total_swap: {topo['total_swap_gb']:.1f}G"
+
+
+def ensure_zram(size_gb: int = 6, algo: str = "lz4") -> bool:
     """Set up tier-1 compressed RAM swap (zram) with high priority (p=100).
 
+    Uses lz4 compression by default for 10x lower page fault latency vs zstd.
     Compresses in-RAM memory spikes (e.g. Soong AST parsing) with zero disk I/O.
     Gracefully degrades if unprivileged or kernel module unavailable.
     """
@@ -277,15 +337,28 @@ def ensure_zram(size_gb: int = 8) -> bool:
             protect_runner_processes()
             return True
 
+        # Reset zram device if idle
+        try:
+            if os.path.exists("/sys/block/zram0/reset"):
+                _safe_run(["sudo", "sh", "-c", "echo 1 > /sys/block/zram0/reset 2>/dev/null || true"])
+        except Exception:
+            pass
+
         # Initialize zram device size & compression algorithm
         zramctl_found = shutil.which("zramctl")
         if zramctl_found:
-            _safe_run(["sudo", "zramctl", "-s", f"{size_gb}G", "-a", "zstd", "/dev/zram0"],
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            r = _safe_run(["sudo", "zramctl", "-s", f"{size_gb}G", "-a", algo, "/dev/zram0"],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if r is None or r.returncode != 0:
+                # Fallback to zstd if lz4 is not supported on older kernels
+                _safe_run(["sudo", "zramctl", "-s", f"{size_gb}G", "-a", "zstd", "/dev/zram0"],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         elif os.path.exists("/sys/block/zram0/disksize"):
             try:
                 if os.path.exists("/sys/block/zram0/comp_algorithm"):
-                    _safe_run(["sudo", "sh", "-c", "echo zstd > /sys/block/zram0/comp_algorithm 2>/dev/null || true"])
+                    r_algo = _safe_run(["sudo", "sh", "-c", f"echo {algo} > /sys/block/zram0/comp_algorithm 2>/dev/null"])
+                    if r_algo is None or r_algo.returncode != 0:
+                        _safe_run(["sudo", "sh", "-c", "echo zstd > /sys/block/zram0/comp_algorithm 2>/dev/null || true"])
                 _safe_run(["sudo", "sh", "-c", f"echo {size_gb}G > /sys/block/zram0/disksize 2>/dev/null || true"])
             except Exception:
                 pass
@@ -294,14 +367,14 @@ def ensure_zram(size_gb: int = 8) -> bool:
         r = _safe_run(["sudo", "swapon", "-p", "100", "/dev/zram0"], capture_output=True, text=True)
         protect_runner_processes()
         if r and r.returncode == 0:
-            log.ok(f"zram tier-1 swap active: +{size_gb} GB on /dev/zram0 (p=100)")
+            log.ok(f"zram tier-1 swap active: +{size_gb} GB on /dev/zram0 (algo={algo}, p=100)")
             return True
     except Exception:
         pass
     return False
 
 
-def ensure_swap(swap_path: str, size_gb: int = 8) -> bool:
+def ensure_swap(swap_path: str, size_gb: int = 4) -> bool:
     current = _active_swap_gb()
     if current >= size_gb:
         protect_runner_processes()
@@ -323,10 +396,10 @@ def ensure_swap(swap_path: str, size_gb: int = 8) -> bool:
                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     _safe_run(["sudo", "chmod", "600", swap_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     _safe_run(["sudo", "mkswap", swap_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    r = _safe_run(["sudo", "swapon", swap_path], capture_output=True, text=True)
+    r = _safe_run(["sudo", "swapon", "-p", "10", swap_path], capture_output=True, text=True)
     protect_runner_processes()
     if r and r.returncode == 0:
-        log.log(f"swap on: +{needed_gb} GB at {swap_path} (target {size_gb} GB)")
+        log.log(f"swap on: +{needed_gb} GB at {swap_path} (priority 10, target {size_gb} GB)")
         return True
     return False
 

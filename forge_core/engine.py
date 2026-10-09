@@ -41,9 +41,11 @@ class BuildError(Exception):
 # budget    -> classification 'sliced'   : resume next slot, all healthy
 # disk      -> classification 'capacity' : REFUSE to loop (deadlock guard)
 # root-disk -> classification 'sliced'   : / pressure, purge recovers it
+# memory    -> classification 'mem-stall': PSI memory stall, re-route or slow profile
 STOP_BUDGET = "budget"
 STOP_DISK = "disk"
 STOP_ROOT_DISK = "root-disk"
+STOP_MEMORY = "memory"
 
 # watchdog thresholds (GiB) — module constants so tests can reason about them
 ROOT_PURGE_GB = 1.5             # / below this -> emergency purge caches
@@ -52,6 +54,58 @@ ROOT_STOP_GB = 0.8             # / below this after purge -> SIGINT (eviction
 PHYS_WARN_GB = 4.0             # backing mount low -> fstrim + ladder
 PHYS_STOP_GB = 2.0             # backing mount critical -> stop
 LOGICAL_STOP_GB = 2.0          # free space inside the btrfs volume
+
+# cgroup v2 phase limits (memory.max, memory.swap.max, cpu.max)
+CG_PHASE_LIMITS = {
+    "analysis": ("14G", "12G", "350000 100000"),
+    "exec":     ("13G", "6G",  "380000 100000"),
+}
+
+
+def _read_psi() -> Optional[float]:
+    """Read full avg60 from /proc/pressure/memory, or None if PSI unsupported."""
+    try:
+        psi_file = "/proc/pressure/memory"
+        if os.path.exists(psi_file):
+            with open(psi_file, "r", encoding="utf-8", errors="replace") as f:
+                txt = f.read()
+            m = re.search(r"full\s+.*?avg60=(\d+\.\d+)", txt)
+            if m:
+                return float(m.group(1))
+            m_some = re.search(r"some\s+.*?avg60=(\d+\.\d+)", txt)
+            if m_some:
+                return float(m_some.group(1))
+    except Exception:
+        pass
+    return None
+
+
+def _cgroup_run_prefix(phase: str = "exec") -> Optional[List[str]]:
+    """Rung 1: delegated cgroupv2 dir; Rung 2: systemd-run; Rung 3: None."""
+    limits = CG_PHASE_LIMITS.get(phase, CG_PHASE_LIMITS["exec"])
+    mem, swp, cpu = limits
+    try:
+        if Path("/sys/fs/cgroup/cgroup.controllers").exists():
+            base = Path("/sys/fs/cgroup/romforge") / phase
+            subprocess.run(["sudo", "mkdir", "-p", str(base)], check=True, timeout=10,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for f, v in (("memory.max", mem), ("memory.swap.max", swp),
+                         ("memory.high", "11G" if phase == "exec" else "13G"),
+                         ("cpu.max", cpu)):
+                subprocess.run(["sudo", "sh", "-c", f"echo {v} > {base}/{f}"],
+                               check=True, timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return ["sudo", "systemd-run", "--scope", "--quiet",
+                    f"--unit=forge-{phase}-{int(time.time())}", "bash", "-c"]
+    except Exception:
+        pass
+    if shutil.which("systemd-run"):
+        try:
+            return ["sudo", "systemd-run", "--scope", "--quiet",
+                    f"-p", f"MemoryMax={mem}", f"-p", f"MemorySwapMax={swp}",
+                    f"-p", f"CPUQuota={int(cpu.split()[0]) // 1000}%", "bash", "-c"]
+        except Exception:
+            pass
+    return None
 
 
 FASTBOOT_ZIP_PAT = re.compile(r"(-img-.*|fastboot|target_files|otatools|symbols|apps).*\.zip$", re.IGNORECASE)
@@ -65,7 +119,7 @@ def _root_free_gb() -> float:
         return 999.0   # unknown -> never trigger the root watchdog
 
 
-def build_env(plan, build_root: Path, use_ccache: bool = False) -> Dict[str, str]:
+def build_env(plan, build_root: Path, use_ccache: bool = False, phase: str = "exec") -> Dict[str, str]:
     e = dict(os.environ)
     # Route temporary file creation to the storage layout's raw tmp dir
     # (uncompressed — next to the volume backing, NOT inside the btrfs:
@@ -82,9 +136,41 @@ def build_env(plan, build_root: Path, use_ccache: bool = False) -> Dict[str, str
         "OUT_DIR": str(build_root / "out"),
         "ALLOW_MISSING_DEPENDENCIES":
             e.get("ALLOW_MISSING_DEPENDENCIES", "false"),
-        # Memory shield: Bound Go runtime memory for Soong AST parser to prevent runaway GC thrash & OOM
-        "GOMEMLIMIT": os.environ.get("FORGE_SOONG_MEM_LIMIT", "11GiB"),
+        "JAVA_TOOL_OPTIONS": e.get("JAVA_TOOL_OPTIONS", "-Xmx2560m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"),
     })
+
+    if phase == "analysis":
+        # Analysis phase: AST heap grows to 30-34 GiB; soft sub-limits cause GC death spiral.
+        # Unset GOMEMLIMIT unless explicitly forced via FORGE_SOONG_MEM_LIMIT.
+        limit = os.environ.get("FORGE_SOONG_MEM_LIMIT")
+        if limit:
+            e["GOMEMLIMIT"] = limit
+        elif "GOMEMLIMIT" in e:
+            del e["GOMEMLIMIT"]
+        e["GOGC"] = os.environ.get("FORGE_GOGC", "400")
+        e["GOMAXPROCS"] = os.environ.get("FORGE_GOMAXPROCS", str(min(4, os.cpu_count() or 4)))
+        if os.environ.get("FORGE_GCTRACE", "1") == "1":
+            e["GODEBUG"] = "gctrace=1"
+    elif phase == "bootstrap":
+        e["GOFLAGS"] = os.environ.get("FORGE_GOFLAGS", "-p=2")
+        e["GOMEMLIMIT"] = os.environ.get("FORGE_BOOTSTRAP_MEM_LIMIT", "3GiB")
+        e["GOGC"] = "50"
+        e["GOMAXPROCS"] = "2"
+    else:
+        # Default exec phase: honor explicit override if given
+        if "FORGE_SOONG_MEM_LIMIT" in os.environ:
+            e["GOMEMLIMIT"] = os.environ["FORGE_SOONG_MEM_LIMIT"]
+
+    for k, v in plan.rom.env.items():
+        e[str(k)] = str(v)
+    if use_ccache:
+        e["USE_CCACHE"] = "1"
+        e["CCACHE_EXEC"] = subprocess.run(
+            ["bash", "-lc", "command -v ccache"], capture_output=True,
+            text=True).stdout.strip() or "ccache"
+        e["CCACHE_DIR"] = e.get("CCACHE_DIR",
+                                str(Path.home() / ".ccache"))
+    return e
     for k, v in plan.rom.env.items():
         e[str(k)] = str(v)
     if use_ccache:
@@ -152,6 +238,76 @@ def optimal_jobs(plan) -> int:
     return 4
 
 
+NINJA_BYPASS_STATUS = "[%p %f/%t] "
+
+
+def bypass_ready(build_root: Path) -> Optional[Path]:
+    """Return the combined ninja file Path if Direct Ninja Bypass is safe, else None.
+
+    Checks the 7 invariants:
+      G0: kill-switch FORGE_NINJA_BYPASS != '0'
+      G1: frozen graphs present (out/combined-*.ninja, out/soong/build.ninja, out/build-*.ninja)
+      G1b: incremental state present (out/.ninja_log, out/.ninja_deps)
+      G2: ninja binary available in prebuilts or PATH
+      G3: no .bp / .mk file is newer than out/soong/build.ninja
+    """
+    if os.environ.get("FORGE_NINJA_BYPASS", "1") == "0":
+        return None
+    out = build_root / "out"
+    if not out.exists():
+        return None
+    combined = sorted(out.glob("combined-*.ninja"))
+    soong_ninja = out / "soong" / "build.ninja"
+    kati = [p for p in out.glob("build-*.ninja")]
+    if not combined or not soong_ninja.exists() or not kati:
+        return None
+    for required in (out / ".ninja_log", out / ".ninja_deps"):
+        if not required.exists():
+            return None
+    ninja_bin = build_root / "prebuilts/build-tools/linux-x86/bin/ninja"
+    if not ninja_bin.exists():
+        if not shutil.which("ninja"):
+            return None
+    graph_mtime = soong_ninja.stat().st_mtime
+    # G3: check freshness of Android.bp / Android.mk vs graph mtime
+    try:
+        r = subprocess.run(
+            ["bash", "-c",
+             f"cd {build_root} && find . -maxdepth 6 -name 'out' -prune -o "
+             r"\( -name 'Android.bp' -o -name 'Android.mk' \) -printf '%T@\n' 2>/dev/null "
+             "| sort -rn | head -1"],
+            capture_output=True, text=True, timeout=30)
+        if r.returncode == 0 and r.stdout.strip():
+            latest_mtime = float(r.stdout.strip())
+            if latest_mtime > graph_mtime + 1.0:
+                log.log(f"bypass: .bp/.mk newer than graph ({latest_mtime:.1f} > {graph_mtime:.1f}) — falling back to soong")
+                return None
+    except Exception:
+        pass
+    return combined[0]
+
+
+def _launcher(plan, soong_ui: Path, jobs: int, target: str, combined: Optional[Path] = None, build_root: Optional[Path] = None) -> str:
+    combo = lunch_combo(plan)
+    if combined is not None:
+        ninja_bin = "prebuilts/build-tools/linux-x86/bin/ninja"
+        if build_root and not (build_root / ninja_bin).exists():
+            ninja_bin = shutil.which("ninja") or "ninja"
+        return (
+            "set +eu; "
+            "source build/envsetup.sh >/dev/null 2>&1; "
+            f"lunch {combo} >/dev/null 2>&1; "
+            f"export NINJA_STATUS='{NINJA_BYPASS_STATUS}'; "
+            f"exec {ninja_bin} -f {combined} -j {jobs} {target}"
+        )
+    return (
+        "set +eu; "
+        "source build/envsetup.sh >/dev/null 2>&1; "
+        f"lunch {combo} >/dev/null 2>&1; "
+        f"exec {soong_ui} --make-mode -j {jobs} {target}"
+    )
+
+
 def run_slice(plan, build_root: Path, target: str, budget_s: int,
               build_log: Path, use_ccache: bool = False,
               allow_missing_deps: bool = False,
@@ -180,21 +336,22 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
     jobs = optimal_jobs(plan)
     log.log(f"dynamic parallel jobs: -j {jobs}")
 
-    # -- envsetup + lunch are function definitions; source them in bash ------
-    launcher = (
-        "set +eu; "
-        f"source build/envsetup.sh >/dev/null 2>&1; "
-        f"lunch {lunch_combo(plan)} >/dev/null 2>&1; "
-        f"exec {soong_ui} --make-mode -j {jobs} {target}"
-    )
-    e = build_env(plan, build_root, use_ccache=use_ccache)
+    # Check for direct ninja bypass readiness (§3)
+    combined = bypass_ready(build_root)
+    mode = "ninja-direct" if combined else "soong"
+    log.ok(f"slice mode: {mode} "
+           f"({'bypassing soong_ui entirely' if combined else 'full soong_ui pipeline'})")
+
+    launcher = _launcher(plan, soong_ui, jobs, target, combined=combined, build_root=build_root)
+    e = build_env(plan, build_root, use_ccache=use_ccache, phase="exec" if combined else "analysis")
     e["NINJA_ARGS"] = f"-j {jobs}"
     if allow_missing_deps:
         e["ALLOW_MISSING_DEPENDENCIES"] = "true"
 
+    prefix = _cgroup_run_prefix("exec" if combined else "analysis") or ["bash", "-c"]
     t0 = time.time()
     with open(build_log, "ab", buffering=0) as logf:
-        proc = subprocess.Popen(["bash", "-c", launcher], cwd=str(build_root),
+        proc = subprocess.Popen([*prefix, launcher], cwd=str(build_root),
                                 stdout=logf, stderr=logf, env=e,
                                 start_new_session=True)   # <- own pgid
 
@@ -429,7 +586,7 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                     ram_used_pct = ((tot_kb - avail_kb) / tot_kb * 100.0) if tot_kb > 0 else 0.0
 
                     if (sw_used_pct > 70.0 or (ram_used_pct > 80.0 and sw_used_pct > 40.0)):
-                        if len(dynamic_swap_chunks) < 6:
+                        if len(dynamic_swap_chunks) < 2:
                             snap = storage.snapshot(build_root)
                             if snap.physical_free_gb > 12.0:
                                 idx = len(dynamic_swap_chunks) + 1
@@ -441,6 +598,41 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                                            f"Disk {snap.physical_free_gb:.1f}G free)")
             except Exception:
                 pass
+
+    # ---- L3 PSI memory watchdog: graceful SIGINT on sustained thrashing ------
+    def memory_watchdog() -> None:
+        stall_since: Optional[float] = None
+        while not stop.wait(2.0):
+            psi = _read_psi()
+            swap_full = False
+            ram_pct = 0.0
+            try:
+                with open("/proc/meminfo", "r") as mf:
+                    mem_data = mf.read()
+                    sw_tot_m = re.search(r"SwapTotal:\s+(\d+)", mem_data)
+                    sw_free_m = re.search(r"SwapFree:\s+(\d+)", mem_data)
+                    tot_m = re.search(r"MemTotal:\s+(\d+)", mem_data)
+                    avail_m = re.search(r"MemAvailable:\s+(\d+)", mem_data)
+                    if sw_tot_m and sw_free_m and tot_m and avail_m:
+                        sw_tot = int(sw_tot_m.group(1))
+                        sw_free = int(sw_free_m.group(1))
+                        tot = int(tot_m.group(1))
+                        avail = int(avail_m.group(1))
+                        swap_full = ((sw_tot - sw_free) / max(1, sw_tot)) > 0.97
+                        ram_pct = ((tot - avail) / max(1, tot)) * 100.0
+            except Exception:
+                continue
+
+            hard = (psi is not None and psi > 95.0) or (swap_full and ram_pct > 96.0)
+            if hard:
+                stall_since = stall_since or time.time()
+                if time.time() - stall_since > 90:
+                    log.warn(f"MEM-STALL (PSI full avg60={psi}, swap_full={swap_full}, "
+                             f"ram={ram_pct:.0f}%) — SIGINT for consistent bank")
+                    _graceful_stop(STOP_MEMORY)
+                    return
+            else:
+                stall_since = None
 
     # ---- mid-slice checkpoint watchdog (Phase 2.2) --------------------------
     ckpt_min = int(os.environ.get("FORGE_CKPT_MIN", "0") or 0)
@@ -457,6 +649,7 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
     threads = [threading.Thread(target=budget_watchdog, daemon=True),
                threading.Thread(target=disk_watchdog, daemon=True),
                threading.Thread(target=dynamic_swap_watchdog, daemon=True),
+               threading.Thread(target=memory_watchdog, daemon=True),
                threading.Thread(target=checkpoint_watchdog, daemon=True),
                threading.Thread(target=live_heartbeat, daemon=True)]
     for t in threads:
@@ -469,11 +662,26 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
     fenv.deactivate_swap_chunks(dynamic_swap_chunks)
     elapsed = time.time() - t0
 
+    # Single fallback replay if ninja-direct failed non-zero and wasn't stopped by watchdog
+    if mode == "ninja-direct" and rc != 0 and not stopped_by_watchdog.is_set() and not stop_reason["reason"]:
+        rem_budget = int(budget_s - elapsed)
+        if rem_budget > 300:
+            log.warn("bypass execution exited non-zero — replaying via soong_ui once")
+            soong_launcher = _launcher(plan, soong_ui, jobs, target, combined=None, build_root=build_root)
+            t_fb = time.time()
+            with open(build_log, "ab", buffering=0) as logf:
+                fb_proc = subprocess.Popen(["bash", "-c", soong_launcher], cwd=str(build_root),
+                                           stdout=logf, stderr=logf, env=e,
+                                           start_new_session=True)
+            rc = fb_proc.wait()
+            elapsed += (time.time() - t_fb)
+
     # ---- classify -------------------------------------------------------------
     # The stop_reason decides whether resuming is SAFE:
     #   budget / root-disk -> sliced   (transient; next slot makes progress)
     #   disk               -> capacity (structural; the conveyor refuses to
     #                                  re-dispatch — the storage-deadlock fix)
+    #   memory             -> mem-stall (sustained swap/RAM thrashing)
     try:
         final_snap = storage.snapshot(build_root)
         disk_state = final_snap.to_dict()
@@ -504,7 +712,11 @@ def classify_exit(rc: int, watchdog_fired: bool, stop_reason: str,
     if not reason and elapsed_s >= budget_s - 5:
         reason = STOP_BUDGET          # SIGINT raced process exit
     if watchdog_fired or reason:
-        return "capacity" if reason == STOP_DISK else "sliced"
+        if reason == STOP_DISK:
+            return "capacity"
+        if reason == STOP_MEMORY:
+            return "mem-stall"
+        return "sliced"
     return "error"
 
 
@@ -556,3 +768,20 @@ def slice_summary(result: Dict[str, object], build_log: Path,
     for line in lines:
         log.summary(line)
     return "\n".join(lines)
+
+
+def explain_dirty_graph(build_root: Path) -> Optional[str]:
+    """Diagnostic probe (P0.3): run ninja -d explain -n to inspect why a restored graph is dirty."""
+    out = build_root / "out"
+    bootstrap_ninja = out / "soong" / ".bootstrap" / "build.ninja"
+    soong_ninja = out / "soong" / "build.ninja"
+    if not (bootstrap_ninja.exists() and soong_ninja.exists()):
+        return None
+    ninja_bin = build_root / "prebuilts/build-tools/linux-x86/bin/ninja"
+    ninja_cmd = str(ninja_bin) if ninja_bin.exists() else (shutil.which("ninja") or "ninja")
+    try:
+        r = subprocess.run([ninja_cmd, "-d", "explain", "-f", str(bootstrap_ninja), "-n", str(soong_ninja)],
+                           capture_output=True, text=True, timeout=60, cwd=str(build_root))
+        return r.stdout or r.stderr
+    except Exception as e:
+        return f"explain probe error: {e}"

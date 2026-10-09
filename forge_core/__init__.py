@@ -9,6 +9,7 @@ Subsystems:
   relay    exact-resume out/ state relay (the fix for linear slice redo)
   engine   the slice build engine (process-group watchdog, budget, classify)
   turbo    parallel partition prewarm planner + merge
+  cas      content-addressed module cache & delta banking
   gate     14-point anti-brick hard verification gate
 """
 

@@ -126,6 +126,53 @@ class TestPhase3Architecture(unittest.TestCase):
         self.assertEqual((out_dir / "system.img").read_text(encoding="utf-8"), "system_data_base")
         self.assertEqual((out_dir / "boot.img").read_text(encoding="utf-8"), "boot_data_donor")
 
+    # -----------------------------------------------------------------------
+    # 4. CAS-Relay & Delta Banking Tests (§5.2-S3, §5.3)
+    # -----------------------------------------------------------------------
+    def test_cas_manifest_generation_and_diff(self):
+        """CAS: generate_manifest and diff_manifests accurately track module changes."""
+        from forge_core import cas
+        out_dir = self.tmp / "cas_out"
+        inter_dir = out_dir / "soong" / ".intermediates" / "frameworks" / "base"
+        inter_dir.mkdir(parents=True)
+        (inter_dir / "classes.jar").write_bytes(b"jar_content_v1")
+
+        # 1. Base manifest
+        m1 = cas.generate_manifest(out_dir)
+        self.assertIn("soong/.intermediates/frameworks/base", m1)
+        self.assertEqual(m1["soong/.intermediates/frameworks/base"]["size"], len(b"jar_content_v1"))
+
+        # 2. Add second module
+        inter_dir2 = out_dir / "soong" / ".intermediates" / "services" / "core"
+        inter_dir2.mkdir(parents=True)
+        (inter_dir2 / "classes.jar").write_bytes(b"jar_content_services")
+
+        m2 = cas.generate_manifest(out_dir)
+        delta = cas.diff_manifests(m1, m2)
+        self.assertEqual(delta, ["soong/.intermediates/services/core"])
+
+    def test_cas_module_banking_and_restore(self):
+        """CAS: bank_cas_modules and restore_cas_modules roundtrip intermediates cleanly."""
+        from forge_core import cas
+        build_root = self.tmp / "cas_build"
+        out_dir = build_root / "out"
+        mod_dir = out_dir / "soong" / ".intermediates" / "libart" / "core"
+        mod_dir.mkdir(parents=True)
+        (mod_dir / "libart.so").write_bytes(b"art_so_binary")
+
+        tag = "cas-shiba-test"
+        ok = cas.bank_cas_modules(build_root, self.store, tag, ["soong/.intermediates/libart/core"])
+        self.assertTrue(ok)
+        self.assertTrue(self.store.exists(tag))
+
+        # Restore into clean build root
+        restore_root = self.tmp / "cas_restore"
+        res_ok = cas.restore_cas_modules(restore_root, self.store, tag)
+        self.assertTrue(res_ok)
+        restored_file = restore_root / "out" / "soong" / ".intermediates" / "libart" / "core" / "libart.so"
+        self.assertTrue(restored_file.exists())
+        self.assertEqual(restored_file.read_bytes(), b"art_so_binary")
+
 
 if __name__ == "__main__":
     unittest.main()
