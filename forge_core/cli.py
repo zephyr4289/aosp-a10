@@ -226,7 +226,7 @@ def cmd_prepare(args, root: Path) -> int:
         try:
             target_swap = int(plan.version.get("swap_gb", 8))
             if not zram_ok and plan.rom.android_version >= 14:
-                target_swap = max(target_swap, 16)
+                target_swap = max(target_swap, 10 if zswap_ok else 16)
             swap_path = str(swap_dir / ".forge-swap")
             fenv.ensure_swap(swap_path, size_gb=target_swap)
         except Exception:

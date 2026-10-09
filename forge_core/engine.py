@@ -52,7 +52,7 @@ STOP_MEMORY = "memory"
 ROOT_PURGE_GB = 1.5             # / below this -> emergency purge caches
 ROOT_STOP_GB = 0.8             # / below this after purge -> SIGINT (eviction
                                #    of the runner daemon loses EVERYTHING)
-PHYS_WARN_GB = 4.0             # backing mount low -> fstrim + ladder
+PHYS_WARN_GB = 6.0             # backing mount low -> fstrim + ladder
 PHYS_STOP_GB = 2.0             # backing mount critical -> stop
 LOGICAL_STOP_GB = 2.0          # free space inside the btrfs volume
 
@@ -489,8 +489,11 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
             # (c) physical: fstrim punches holes in the sparse image
             if snap.physical_free_gb < PHYS_WARN_GB:
                 storage.trim()
-            # (d) hard stops — the old deadlocked behavior silently looped
-            #     here forever; now the classification carries the reason.
+                try:
+                    snap = storage.snapshot(build_root)
+                except Exception:  # noqa: BLE001
+                    pass
+            # (d) hard stops — only stop if STILL exhausted after reclaim
             if snap.logical_free_gb < LOGICAL_STOP_GB or \
                     snap.physical_free_gb < PHYS_STOP_GB:
                 log.warn(f"disk capacity exhausted "
