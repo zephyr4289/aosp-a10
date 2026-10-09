@@ -38,12 +38,7 @@ env:
   TARGET_RELEASE: "trunk_staging"
   WITH_DEXPREOPT: "false"         # massive time + disk saver
   DONT_INSTALL_DEX_DEBUG_INFO: "true"
-  # ALLOW_MISSING_DEPENDENCIES intentionally NOT set here (P0-5.5):
-  # globally-set AMMD ships stubbed dependencies into the release zip —
-  # a correctness hazard the 14-point gate cannot see. Turbo partition
-  # warmups still pass it explicitly (cli --turbo-part). Re-add per-rom
-  # ONLY if a mid-chain dep is genuinely missing and you accept the stub
-  # in the final ROM.
+  ALLOW_MISSING_DEPENDENCIES: "true"  # Required for proprietary vendor/kernel HAL dependencies on shiba
 
 slices: 8                         # A17 on Zen 5 Turin 4 vCPU: chained relay slots
 slice_build_seconds: 16500

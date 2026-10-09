@@ -153,16 +153,17 @@ class ReleaseStore:
             return []
 
     def download_file(self, tag: str, filename: str, dest_file: Path) -> Path:
-        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file = (dest_file / filename) if dest_file.is_dir() else dest_file
+        target_file.parent.mkdir(parents=True, exist_ok=True)
         for attempt in range(3):
             r = self._gh("release", "download", tag, "--pattern", filename,
-                         "--dir", str(dest_file.parent), "--clobber", check=False)
+                         "--dir", str(target_file.parent), "--clobber", check=False)
             if r.returncode == 0:
-                downloaded = dest_file.parent / filename
-                if downloaded != dest_file and downloaded.exists():
-                    downloaded.rename(dest_file)
-                if dest_file.exists():
-                    return dest_file
+                downloaded = target_file.parent / filename
+                if downloaded != target_file and downloaded.exists():
+                    downloaded.rename(target_file)
+                if target_file.exists():
+                    return target_file
             log.warn(f"download retry {attempt + 1}/3 for {tag}/{filename}: "
                      f"{r.stderr.strip()[:160]}")
             time.sleep(10 * (attempt + 1))
@@ -300,9 +301,10 @@ class FsStore:
         src = d / filename
         if not src.exists():
             raise StoreError(f"fs-store asset {filename} missing in {tag}")
-        dest_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest_file)
-        return dest_file
+        target_file = (dest_file / filename) if dest_file.is_dir() else dest_file
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target_file)
+        return target_file
 
     def list_tags(self, prefix: str) -> List[str]:
         return [p.name for p in self.root.iterdir()

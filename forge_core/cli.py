@@ -463,7 +463,7 @@ def _normalize_tree_mtimes(plan, build_root: Path, store, src_tag: str) -> None:
     try:
         tmp = Path(".forge-tmp-mtime")
         tmp.mkdir(parents=True, exist_ok=True)
-        mf = store.download_file(gtag, syncer.SRC_MTIME_MANIFEST, tmp)
+        mf = store.download_file(gtag, syncer.SRC_MTIME_MANIFEST, tmp / syncer.SRC_MTIME_MANIFEST)
     except Exception as e:
         log.warn(f"P0-3: manifest fetch failed ({e}) — G3 may refuse the "
                  "bypass on this slot")
