@@ -139,10 +139,15 @@ def build_env(plan, build_root: Path, use_ccache: bool = False, phase: str = "ex
     e.update({
         "LC_ALL": "C",
         "OUT_DIR": str(build_root / "out"),
-        "ALLOW_MISSING_DEPENDENCIES":
-            e.get("ALLOW_MISSING_DEPENDENCIES", "true"),
+        # P0-5.5: NO default for ALLOW_MISSING_DEPENDENCIES — a global
+        # default ships stubbed deps into the final ROM (a correctness
+        # hazard the 14-point gate cannot see). Turbo warmups set it
+        # explicitly via the allow_missing_deps parameter; a genuinely
+        # missing dep in the main chain should fail LOUD, not stub.
         "JAVA_TOOL_OPTIONS": e.get("JAVA_TOOL_OPTIONS", "-Xmx2560m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"),
     })
+    if "ALLOW_MISSING_DEPENDENCIES" not in e and os.environ.get("ALLOW_MISSING_DEPENDENCIES"):
+        e["ALLOW_MISSING_DEPENDENCIES"] = os.environ["ALLOW_MISSING_DEPENDENCIES"]
 
     if phase == "analysis":
         # Analysis phase: enforce GOMEMLIMIT=12GiB and proactive GOGC=60

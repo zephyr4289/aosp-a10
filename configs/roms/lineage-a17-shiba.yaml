@@ -38,12 +38,24 @@ env:
   TARGET_RELEASE: "trunk_staging"
   WITH_DEXPREOPT: "false"         # massive time + disk saver
   DONT_INSTALL_DEX_DEBUG_INFO: "true"
-  ALLOW_MISSING_DEPENDENCIES: "true"
+  # ALLOW_MISSING_DEPENDENCIES intentionally NOT set here (P0-5.5):
+  # globally-set AMMD ships stubbed dependencies into the release zip —
+  # a correctness hazard the 14-point gate cannot see. Turbo partition
+  # warmups still pass it explicitly (cli --turbo-part). Re-add per-rom
+  # ONLY if a mid-chain dep is genuinely missing and you accept the stub
+  # in the final ROM.
 
 slices: 8                         # A17 on Zen 5 Turin 4 vCPU: chained relay slots
 slice_build_seconds: 16500
 
 turbo:
   enabled: true
-  targets: [bootimage, vendor_boot, vendorimage, dtboimage]
+  # P1-1: goal names validated against the banked graph's targets.txt
+  # once the graph is minted (5-second red instead of a 50-minute
+  # runner-hour). vendor_boot -> vendorbootimage per the classic make
+  # phony form (runs #61-#63 evidence: 'vendor_boot' died in the goal
+  # phase). dtboimage may be board-gated on this tree — if the lint
+  # reds it out after the first mint, swap in the suggestion or the
+  # file-target form (out/target/product/shiba/dtbo.img).
+  targets: [bootimage, vendorbootimage, vendorimage, dtboimage]
   budget_s: 16500
