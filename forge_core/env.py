@@ -374,6 +374,55 @@ def ensure_zram(size_gb: int = 6, algo: str = "lz4") -> bool:
     return False
 
 
+def ensure_zswap(max_pool_percent: int = 25, compressor: str = "lz4") -> bool:
+    """P0-5.1 (OVERHAUL.md): the zram fallback that actually works on GH runners.
+
+    On GitHub's Azure kernels `modprobe zram` fails every single run
+    (zram UNAVAILABLE was present in all six runs' logs), so the tier-1
+    memory shield silently degraded to disk-swap-only. zswap needs no
+    module and is present on stock Ubuntu 24.04 kernels: pages destined
+    for disk swap are compressed in a RAM pool first. Soong AST pages
+    compress ~2.5-3.5x, so at 17 GiB swap this buys ~10-14 GiB of
+    effective swap-path capacity for free — enough by itself to move the
+    32.6 GiB fused analysis from zero-margin to survivable-margin on the
+    minter run. The degraded state must never again be a one-line WARN
+    nobody reads: this function logs the full topology either way."""
+    base = Path("/sys/module/zswap/parameters")
+    try:
+        if not (base / "enabled").exists():
+            log.warn("zswap UNAVAILABLE: /sys/module/zswap/parameters "
+                     "missing (kernel built without CONFIG_ZSWAP)")
+            return False
+
+        def _w(name: str, val: str) -> bool:
+            r = _safe_run(["sudo", "sh", "-c", f"echo {val} > {base / name}"],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return r is not None and r.returncode == 0
+
+        if not _w("enabled", "1"):
+            cur = (base / "enabled").read_text(encoding="utf-8",
+                                               errors="replace").strip()
+            log.warn(f"zswap enable refused by sysfs (enabled={cur}) — "
+                     "swap-path compression unavailable; the 32.6 GiB "
+                     "analysis runs disk-swap-only")
+            return False
+        _w("compressor", compressor)
+        _w("max_pool_percent", str(max_pool_percent))
+        comp = (base / "compressor").read_text(encoding="utf-8",
+                                               errors="replace").strip()
+        pct = (base / "max_pool_percent").read_text(encoding="utf-8",
+                                                    errors="replace").strip()
+        log.ok(f"zswap swap-path compression active (compressor={comp}, "
+               f"max_pool_percent={pct}) — up to {pct}% of RAM now "
+               f"buffers compressed swap pages (~2.5-3.5x on Soong AST "
+               f"pages => +10-14 GiB effective capacity)")
+        protect_runner_processes()
+        return True
+    except Exception as e:
+        log.warn(f"zswap setup failed: {e}")
+        return False
+
+
 def ensure_swap(swap_path: str, size_gb: int = 4) -> bool:
     current = _active_swap_gb()
     if current >= size_gb:

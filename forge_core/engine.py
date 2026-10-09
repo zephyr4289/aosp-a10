@@ -56,10 +56,22 @@ PHYS_WARN_GB = 4.0             # backing mount low -> fstrim + ladder
 PHYS_STOP_GB = 2.0             # backing mount critical -> stop
 LOGICAL_STOP_GB = 2.0          # free space inside the btrfs volume
 
-# cgroup v2 phase limits (memory.max, memory.swap.max, cpu.max)
+# cgroup v2 phase envelopes (P0-5.4) — scoped CORRECTLY per phase:
+#   exec     : hard MemoryMax=13G + MemorySwapMax=6G (ninja -j8 workers,
+#              ~13 GiB RSS of clang/javac — a real ceiling, safe to cap)
+#   analysis : NO MemoryMax at all — capping a 32.6 GiB live set at any
+#              lower number is just a slower death (R2/R3). Instead
+#              MemoryHigh=16G: the kernel reclaims INSIDE the process
+#              (throttling it) rather than globally (starving the runner
+#              daemon), converting the hard livelock into a slow-but-
+#              alive process the early watchdog can stop cleanly. This
+#              is the honest version of what the GOMEMLIMIT commits
+#              intended: shaping from OUTSIDE the env -i boundary, where
+#              it actually reaches the process.
 CG_PHASE_LIMITS = {
-    "analysis": ("14G", "12G", "350000 100000"),
-    "exec":     ("13G", "6G",  "380000 100000"),
+    "analysis": {"MemoryHigh": "16G", "CPUQuota": "350%"},
+    "exec":     {"MemoryMax": "13G", "MemorySwapMax": "6G",
+                 "CPUQuota": "380%"},
 }
 
 
@@ -82,18 +94,22 @@ def _read_psi() -> Optional[float]:
 
 
 def _cgroup_run_prefix(phase: str = "exec") -> Optional[List[str]]:
-    """Rung 1: delegated cgroupv2 dir; Rung 2: systemd-run; Rung 3: None."""
+    """systemd-run scope if available; else plain bash (no envelope).
+
+    The envelope is phase-scoped (see CG_PHASE_LIMITS): the exec phase
+    gets a hard MemoryMax; the analysis phase gets MemoryHigh only —
+    never a MemoryMax (a cap below the 32.6 GiB live set is a slower
+    death, and memory.high reclaims inside the process instead of
+    starving the runner daemon)."""
     limits = CG_PHASE_LIMITS.get(phase, CG_PHASE_LIMITS["exec"])
-    mem, swp, cpu = limits
     uid = os.getuid()
     gid = os.getgid()
     if shutil.which("systemd-run"):
-        try:
-            return ["sudo", "-E", "systemd-run", f"--uid={uid}", f"--gid={gid}", "--scope", "--quiet",
-                    "-p", f"MemoryMax={mem}", f"-p", f"MemorySwapMax={swp}",
-                    "-p", f"CPUQuota={int(cpu.split()[0]) // 1000}%", "bash", "-c"]
-        except Exception:
-            pass
+        props: List[str] = []
+        for k, v in limits.items():
+            props += ["-p", f"{k}={v}"]
+        return ["sudo", "-E", "systemd-run", f"--uid={uid}", f"--gid={gid}",
+                "--scope", "--quiet", *props, "bash", "-c"]
     return None
 
 
@@ -611,7 +627,17 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
         sys.stdout.flush()
 
     # ---- dynamic adaptive swap watchdog (OOM immunity on surge) -------------
+    # P0-5.2 recalibration (OVERHAUL.md, grounded in runs #58-#63):
+    #   trigger sw_used_pct > 55 (was 70)  — grow capacity BEFORE the knee
+    #   chunks up to 8 x 2 GiB (was 4)     — target standing capacity >= 36 GiB
+    #   gate physical_free_gb > 6.0 (was 12.0) — the chunks are SPARSE
+    #   files; they consume physical bytes only as pages land, and the
+    #   old 12 GiB gate starved exactly the slots that needed the grant
+    #   (R4: the critical-path slot entered analysis with 9.4 GiB free,
+    #   was refused every chunk, and died at exactly the turbo's survival
+    #   envelope minus one 2 GiB grant).
     dynamic_swap_chunks: List[Path] = []
+    swap_max_chunks = int(os.environ.get("FORGE_SWAP_MAX_CHUNKS", "8") or 8)
 
     def dynamic_swap_watchdog() -> None:
         while not stop.wait(3.0):
@@ -633,26 +659,46 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                     sw_used_pct = (sw_used_kb / sw_tot_kb * 100.0) if sw_tot_kb > 0 else 0.0
                     ram_used_pct = ((tot_kb - avail_kb) / tot_kb * 100.0) if tot_kb > 0 else 0.0
 
-                    if (sw_used_pct > 70.0 or (ram_used_pct > 80.0 and sw_used_pct > 40.0)):
-                        if len(dynamic_swap_chunks) < 4:
+                    if (sw_used_pct > 55.0 or (ram_used_pct > 80.0 and sw_used_pct > 40.0)):
+                        if len(dynamic_swap_chunks) < swap_max_chunks:
                             snap = storage.snapshot(build_root)
-                            if snap.physical_free_gb > 12.0:
+                            if snap.physical_free_gb > 6.0:
                                 idx = len(dynamic_swap_chunks) + 1
                                 chunk_path = storage.backing_dir() / f".forge-swap.chunk.{idx}"
                                 if fenv.activate_swap_chunk(str(chunk_path), chunk_size_gb=2):
                                     dynamic_swap_chunks.append(chunk_path)
+                                    cap_gb = tot_kb / 1024 / 1024 + (sw_tot_kb + 2048) / 1024 / 1024
                                     log.ok(f"dynamic swap auto-scale: +2 GB chunk {idx} activated "
                                            f"(RAM {ram_used_pct:.0f}%, Swap {sw_used_pct:.0f}%, "
-                                           f"Disk {snap.physical_free_gb:.1f}G free)")
+                                           f"Disk {snap.physical_free_gb:.1f}G free; standing "
+                                           f"capacity -> {cap_gb:.1f} GiB, target >= 36)")
             except Exception:
                 pass
 
-    # ---- L3 PSI memory watchdog: graceful SIGINT on sustained thrashing ------
+    # ---- L3 memory watchdog: early trigger on the APPROACH to the knee ------
+    # P0-5.3 (OVERHAUL.md). The old hard trigger (swap >97% AND ram >96%
+    # sustained 120 s) is the point where the runner daemon is ALREADY
+    # starving: the eviction pipeline (missed heartbeats -> hypervisor
+    # SIGTERM -> runner drain) begins ~30-60 s after total saturation, so
+    # a watchdog that waits for total saturation plus two minutes of
+    # confirmation arrives after the funeral (R5: c11 saturated 11:30:34,
+    # watchdog SIGINT 11:32:48, infra SIGTERM 11:35:02 — dispatched while
+    # the watchdog was still in its sustain window). The new triggers:
+    #   (a) PSI knee:     full avg60 > 40 sustained 90 s
+    #   (b) near-sat:     swap_used > 80% AND ram > 90% sustained 60 s
+    #   (c) fill-rate:    swap saturates within 6 min (60 s window,
+    #                     confirmed across 2 polls)
+    # Goal: stop while the daemon still has a heartbeat, leaving >= 5 min
+    # for the P0-4 graph-first critical flush.
     def memory_watchdog() -> None:
-        stall_since: Optional[float] = None
+        psi_since: Optional[float] = None
+        sat_since: Optional[float] = None
+        eta_since: Optional[float] = None
+        swap_hist: List[tuple] = []   # (t, swap_used_kb) — 60 s window
         while not stop.wait(2.0):
             psi = _read_psi()
-            swap_full = False
+            sw_tot_kb = 0
+            sw_used_pct = 0.0
             ram_pct = 0.0
             try:
                 with open("/proc/meminfo", "r") as mf:
@@ -662,25 +708,64 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                     tot_m = re.search(r"MemTotal:\s+(\d+)", mem_data)
                     avail_m = re.search(r"MemAvailable:\s+(\d+)", mem_data)
                     if sw_tot_m and sw_free_m and tot_m and avail_m:
-                        sw_tot = int(sw_tot_m.group(1))
-                        sw_free = int(sw_free_m.group(1))
+                        sw_tot_kb = int(sw_tot_m.group(1))
+                        sw_used_kb = sw_tot_kb - int(sw_free_m.group(1))
                         tot = int(tot_m.group(1))
                         avail = int(avail_m.group(1))
-                        swap_full = ((sw_tot - sw_free) / max(1, sw_tot)) > 0.97
+                        sw_used_pct = (sw_used_kb / max(1, sw_tot_kb)) * 100.0
                         ram_pct = ((tot - avail) / max(1, tot)) * 100.0
+                        now = time.time()
+                        swap_hist.append((now, sw_used_kb))
+                        swap_hist = [(t, u) for (t, u) in swap_hist
+                                     if now - t <= 60.0]
             except Exception:
                 continue
 
-            hard = (swap_full and ram_pct > 96.0) or (psi is not None and psi > 98.0 and swap_full)
-            if hard:
-                stall_since = stall_since or time.time()
-                if time.time() - stall_since > 120:
-                    log.warn(f"MEM-STALL (PSI full avg60={psi}, swap_full={swap_full}, "
-                             f"ram={ram_pct:.0f}%) — SIGINT for consistent bank")
-                    _graceful_stop(STOP_MEMORY)
-                    return
+            now = time.time()
+            fire = False
+            why = ""
+            # (a) PSI knee anticipation
+            if psi is not None and psi > 40.0:
+                psi_since = psi_since or now
+                if now - psi_since > 90:
+                    fire = True
+                    why = f"PSI full avg60={psi:.0f} > 40 for 90 s"
             else:
-                stall_since = None
+                psi_since = None
+            # (b) near-saturation
+            if not fire and sw_used_pct > 80.0 and ram_pct > 90.0:
+                sat_since = sat_since or now
+                if now - sat_since > 60:
+                    fire = True
+                    why = (f"swap {sw_used_pct:.0f}% + ram {ram_pct:.0f}% "
+                           "for 60 s")
+            else:
+                sat_since = None
+            # (c) fill-rate extrapolation: swap saturates within 6 min
+            if not fire and len(swap_hist) >= 10 and sw_tot_kb > 0:
+                t0, u0 = swap_hist[0]
+                dt = now - t0
+                if dt >= 30.0:
+                    rate_kbs = max(0.0, (swap_hist[-1][1] - u0)) / dt
+                    if rate_kbs > 1024.0:   # > 1 MiB/s is a real fill
+                        eta_s = (sw_tot_kb - swap_hist[-1][1]) / rate_kbs
+                        if eta_s < 360.0:
+                            eta_since = eta_since or now
+                            if now - eta_since >= 4.0:
+                                fire = True
+                                why = (f"swap fill-rate extrapolates to "
+                                       f"saturation in {eta_s / 60:.1f} min "
+                                       f"(rate {rate_kbs / 1024:.0f} MiB/s)")
+                        else:
+                            eta_since = None
+                    else:
+                        eta_since = None
+            if fire:
+                log.warn(f"MEM-STALL early trigger ({why}) — SIGINT while "
+                         "the runner daemon still has a heartbeat, "
+                         "preserving bank time for the graph-first flush")
+                _graceful_stop(STOP_MEMORY)
+                return
 
     # ---- mid-slice checkpoint watchdog (Phase 2.2) --------------------------
     ckpt_min = int(os.environ.get("FORGE_CKPT_MIN", "0") or 0)

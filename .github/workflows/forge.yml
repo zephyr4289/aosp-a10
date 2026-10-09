@@ -257,7 +257,9 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}" }
         run: python3 -m forge_core.cli --root . prepare --rom "${{ github.event.inputs.rom || 'qassa-a10' }}"
       - name: "Partition prewarm (ALLOW_MISSING_DEPENDENCIES)"
-        env: { GH_TOKEN: "${{ github.token }}" }
+        env:
+          GH_TOKEN: "${{ github.token }}"
+          FORGE_CGROUP: "1"   # P0-5.4: the minter runs the fused analysis — it needs the envelope
         run: python3 -m forge_core.cli --root . slice --rom "${{ github.event.inputs.rom || 'qassa-a10' }}" --turbo-part "${{ matrix.partition }}"
 
   # --------------------------------------------------------------------------
@@ -335,6 +337,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORGE_UNTIL_BUDGET_S: "19200"
           FORGE_CKPT_MIN: "45"
+          FORGE_CGROUP: "1"   # P0-5.4: phase-scoped cgroup envelope (MemoryHigh-only for analysis)
           FORGE_SLOT: "1"
         run: |
           set -euo pipefail
@@ -410,6 +413,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORGE_UNTIL_BUDGET_S: "19200"
           FORGE_CKPT_MIN: "45"
+          FORGE_CGROUP: "1"   # P0-5.4: phase-scoped cgroup envelope (MemoryHigh-only for analysis)
           FORGE_SLOT: "2"
         run: |
           set -euo pipefail
@@ -485,6 +489,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORGE_UNTIL_BUDGET_S: "19200"
           FORGE_CKPT_MIN: "45"
+          FORGE_CGROUP: "1"   # P0-5.4: phase-scoped cgroup envelope (MemoryHigh-only for analysis)
           FORGE_SLOT: "3"
         run: |
           set -euo pipefail
@@ -560,6 +565,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORGE_UNTIL_BUDGET_S: "19200"
           FORGE_CKPT_MIN: "45"
+          FORGE_CGROUP: "1"   # P0-5.4: phase-scoped cgroup envelope (MemoryHigh-only for analysis)
           FORGE_SLOT: "4"
         run: |
           set -euo pipefail
@@ -635,6 +641,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORGE_UNTIL_BUDGET_S: "19200"
           FORGE_CKPT_MIN: "45"
+          FORGE_CGROUP: "1"   # P0-5.4: phase-scoped cgroup envelope (MemoryHigh-only for analysis)
           FORGE_SLOT: "5"
         run: |
           set -euo pipefail
@@ -710,6 +717,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORGE_UNTIL_BUDGET_S: "19200"
           FORGE_CKPT_MIN: "45"
+          FORGE_CGROUP: "1"   # P0-5.4: phase-scoped cgroup envelope (MemoryHigh-only for analysis)
           FORGE_SLOT: "6"
         run: |
           set -euo pipefail
@@ -785,6 +793,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORGE_UNTIL_BUDGET_S: "19200"
           FORGE_CKPT_MIN: "45"
+          FORGE_CGROUP: "1"   # P0-5.4: phase-scoped cgroup envelope (MemoryHigh-only for analysis)
           FORGE_SLOT: "7"
         run: |
           set -euo pipefail
@@ -860,6 +869,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORGE_UNTIL_BUDGET_S: "19200"
           FORGE_CKPT_MIN: "45"
+          FORGE_CGROUP: "1"   # P0-5.4: phase-scoped cgroup envelope (MemoryHigh-only for analysis)
           FORGE_SLOT: "8"
         run: |
           set -euo pipefail
@@ -935,6 +945,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORGE_UNTIL_BUDGET_S: "19200"
           FORGE_CKPT_MIN: "45"
+          FORGE_CGROUP: "1"   # P0-5.4: phase-scoped cgroup envelope (MemoryHigh-only for analysis)
           FORGE_SLOT: "9"
         run: |
           set -euo pipefail
@@ -1010,6 +1021,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORGE_UNTIL_BUDGET_S: "19200"
           FORGE_CKPT_MIN: "45"
+          FORGE_CGROUP: "1"   # P0-5.4: phase-scoped cgroup envelope (MemoryHigh-only for analysis)
           FORGE_SLOT: "10"
         run: |
           set -euo pipefail

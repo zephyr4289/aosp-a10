@@ -210,8 +210,19 @@ def cmd_prepare(args, root: Path) -> int:
         except Exception:
             pass
         if not zram_ok:
-            log.warn("zram UNAVAILABLE on this runner — memory shield degraded: "
-                     "analysis phase will run with disk-swap-only bounds")
+            # P0-5.1: zram fails on EVERY GitHub Azure kernel — fall back
+            # to zswap (kernel in-RAM swap compression, no module needed)
+            # instead of silently degrading to disk-swap-only
+            log.warn("zram UNAVAILABLE on this runner — attempting zswap "
+                     "fallback (kernel swap-path compression)")
+            try:
+                zswap_ok = fenv.ensure_zswap()
+            except Exception:
+                zswap_ok = False
+            if not zswap_ok:
+                log.warn("memory shield DEGRADED: disk-swap-only bounds — "
+                         "expect the 32.6 GiB fused analysis to run at "
+                         "zero margin; prefer minting the graph via turbo")
         try:
             target_swap = int(plan.version.get("swap_gb", 8))
             if not zram_ok and plan.rom.android_version >= 14:
