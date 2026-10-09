@@ -313,84 +313,6 @@ def cmd_patch(args, root: Path) -> int:
     return 0
 
 
-def cmd_slice(args, root: Path) -> int:
-    """One self-sufficient build slot.
-
-    Idempotent by design so the workflow can define a fixed chain of these:
-      0. INDEX says done?   -> no-op, emit classification=done
-      1. capacity halt?     -> refuse (the conveyor must stop re-dispatch;
-                               see forge_core.dag — the storage-deadlock fix)
-      2. mount build volume -> source/out land on btrfs zstd:1 (or plain)
-      3. restore source     -> from content-addressed src-<mhash>
-      4. patches + lunch sanity
-      5. restore out/ state (exact resume); cold start -> merge turbo states
-      6. run the slice (or the turbo partition prewarm)
-      7. bank out/ state + update INDEX (incl. last_classification +
-         stop_reason, which drive the DAG conveyor's next decision)
-    """
-    plan = _plan_from_args(args, root)
-    store = _store(args, root)
-    t = store.target(plan.rom.key)
-
-    # per-run target override (workflow_dispatch input)
-    if os.environ.get("FORGE_TARGET_OVERRIDE") and not args.turbo_part:
-        plan.rom.build_target = os.environ["FORGE_TARGET_OVERRIDE"]
-
-    if t.get("done") and not args.force:
-        log.ok("target already done (INDEX) — slice slot no-ops")
-        log.out("classification", "done")
-        return 0
-
-    # ---- 0. capacity halt: the storage-deadlock guard -----------------------
-    if t.get("last_classification") == "capacity" and not args.force:
-        log.warn("INDEX says the last slice stopped on DISK CAPACITY — "
-                 "refusing to re-run (this is the deadlock guard; re-"
-                 "dispatching would burn 30 min to reproduce the same "
-                 "stop). Grow the volume (FORGE_VOLUME_RESERVE_GB) or "
-                 "prune the working set, then --force.")
-        log.out("classification", "capacity")
-        return 1
-
-    # ---- 1. storage volume + tree --------------------------------------------
-    vol = _ensure_volume(args)
-    build_root = Path(vol.build_root) if vol.build_root else _build_root(args)
-
-    # ---- 2. source ----------------------------------------------------------
-    src_tag = (f"src-{args.mhash}" if getattr(args, "mhash", None) else None) or t.get("src_tag")
-    if not src_tag or not store.exists(src_tag):
-        log.die(f"no source snapshot for {plan.rom.key} — the sync job must "
-                f"run first (this is a workflow wiring bug otherwise)")
-    if not (build_root / ".source_ready").exists():
-        if not syncer.restore_source(build_root, store, src_tag):
-            log.die(f"source restore failed from {src_tag}")
-    syncer.ensure_device_repos(plan, build_root)
-    syncer.apply_patches(plan, build_root, root)
-    syncer.validate_lunch(plan, build_root)
-
-    use_ccache = plan.rom.env.get("USE_CCACHE") == "1"
-    budget = int(args.budget_s or plan.rom.slice_build_seconds)
-
-    # ---- 2. turbo partition prewarm slot -------------------------------------
-    if args.turbo_part:
-        target = args.turbo_part
-        tag = f"state-{plan.rom.key}-turbo-{target}"
-        if store.exists(tag) and not args.force:
-            log.ok(f"turbo state {tag} exists — skipping")
-            log.out("classification", "done")
-            return 0
-        res = engine.run_slice(plan, build_root, target, budget,
-                               Path(args.log or "/tmp/forge-turbo.log"),
-                               use_ccache=use_ccache, allow_missing_deps=True)
-        log.out("classification", res["classification"])
-        if res["classification"] == "done":
-            if not store.exists(tag):
-                store.create(tag, f"turbo {target} {plan.rom.key}",
-                             "Partition prewarm state.")
-            relay.bank(build_root, store, tag, plan.rom.key, 0,
-                       notes=f"turbo {target}")
-            return 0
-        return 1 if res["classification"] == "error" else 0
-
 def _run_single_slice(plan, store, build_root: Path, budget: int, args, use_ccache: bool) -> int:
     t = store.target(plan.rom.key)
     syncer.ensure_prebuilts(build_root)
@@ -488,6 +410,13 @@ def cmd_slice(args, root: Path) -> int:
     store = _store(args, root)
     t = store.target(plan.rom.key)
 
+    # per-run target override (workflow_dispatch input; every slot job in
+    # forge.yml exports this — previously this handling lived ONLY in the
+    # dead shadowed cmd_slice duplicate, so the override was silently
+    # ignored)
+    if os.environ.get("FORGE_TARGET_OVERRIDE") and not args.turbo_part:
+        plan.rom.build_target = os.environ["FORGE_TARGET_OVERRIDE"]
+
     # ---- 0. done short-circuit -----------------------------------------------
     if t.get("done") and not args.force:
         log.ok(f"{plan.rom.key} is already marked DONE in INDEX — nothing to slice")
@@ -528,18 +457,49 @@ def cmd_slice(args, root: Path) -> int:
         target = args.turbo_part
         tag = f"state-{plan.rom.key}-turbo-{target}"
         if store.exists(tag) and not args.force:
-            log.ok(f"turbo state {tag} exists — skipping")
+            # P1-4 honest skip semantics: say WHEN it was banked, so the
+            # lane stops conflating "skipped because done" with "did work"
+            log.ok(f"turbo {target}: banked in {tag}, skipping rebuild "
+                   "(pass --force to rebuild)")
             log.out("classification", "done")
+            log.out("turbo_skipped", "1")
             return 0
-        # Restore banked graph for turbo slots to bypass Soong analysis on cold out/
-        if not (build_root / "out" / "soong" / "build.ninja").exists():
-            mhash = src_tag.replace("src-", "") if src_tag.startswith("src-") else getattr(plan, "mhash", "")
+        mhash = src_tag.replace("src-", "") if src_tag.startswith("src-") else getattr(plan, "mhash", "")
+        # Restore banked graph for turbo slots to bypass Soong analysis on
+        # cold out/ — discovery-based, NOT the phantom build.ninja (R1)
+        if not engine.discover_graph(build_root):
             if mhash:
                 graph.restore_graph(build_root, store, mhash, plan.rom.lunch)
+        # P1-1 goal lint: validate the partition goal against the banked
+        # graph's targets.txt BEFORE burning a 60-min analysis run
+        if mhash:
+            lint = graph.validate_goal(build_root, target)
+            if lint:
+                log.warn(f"turbo goal lint FAILED for '{target}': {lint} "
+                         "— failing fast instead of burning a runner-hour")
+                log.out("classification", "error")
+                log.out("goal_lint", lint)
+                return 1
         res = engine.run_slice(plan, build_root, target, budget,
                                Path(args.log or "/tmp/forge-turbo.log"),
                                use_ccache=use_ccache, allow_missing_deps=True)
         log.out("classification", res["classification"])
+
+        # P0-2 turbo-as-minter: the turbo jobs are the ONLY execution
+        # environment that has survived the 32.6 GiB fused analysis on
+        # free-tier hardware (25 GiB swap + 55 GiB disk free). Mint the
+        # graph bank REGARDLESS of the partition build result — the graph
+        # is generated BEFORE ninja rejects the goal. One turbo job-hour
+        # buys every future slot out of the memory gauntlet permanently.
+        minted = False
+        if mhash:
+            try:
+                minted = graph.bank_graph(build_root, store, mhash, plan.rom.lunch)
+            except Exception as e:
+                log.warn(f"graph mint attempt failed: {e}")
+        if minted:
+            log.out("graph_minted", "1")
+
         if res["classification"] == "done":
             if not store.exists(tag):
                 store.create(tag, f"turbo {target} {plan.rom.key}",
@@ -547,6 +507,27 @@ def cmd_slice(args, root: Path) -> int:
             relay.bank(build_root, store, tag, plan.rom.key, 0,
                        notes=f"turbo {target}")
             return 0
+        # P1-3: mint-but-failed-partition is a PARTIAL success — the graph
+        # is the campaign's most valuable artifact. Green with a note.
+        if minted:
+            log.warn(f"turbo {target} partition FAILED but graph bank "
+                     f"minted — reporting partial success (graph minted=1)")
+            return 0
+        # P1-2 turbo forensics parity: dump the build log tail so a
+        # failed goal is visible in the job log, not swallowed (R6e —
+        # six runs of classification=error with zero error text)
+        turbo_log = Path(args.log or "/tmp/forge-turbo.log")
+        if turbo_log.exists():
+            try:
+                lines = turbo_log.read_text(encoding="utf-8",
+                                            errors="replace").splitlines()
+                log.warn(f"=== TURBO FAILED: last {min(100, len(lines))} "
+                         f"lines of {turbo_log} ===")
+                for line in lines[-100:]:
+                    print(line, file=sys.stderr)
+                log.warn("=== END TURBO BUILD LOG FORENSICS ===")
+            except Exception:
+                pass
         return 1 if res["classification"] == "error" else 0
 
     # ---- 3. main-chain slice state restore -----------------------------------
