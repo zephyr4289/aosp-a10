@@ -1,0 +1,180 @@
+name: "Runner Fleet Profiler (100 Shards)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_image:
+        description: "GitHub Runner Image"
+        required: false
+        default: "ubuntu-22.04"
+        type: choice
+        options:
+          - "ubuntu-22.04"
+          - "ubuntu-24.04"
+          - "ubuntu-latest"
+
+jobs:
+  profile:
+    name: "Profile Shard ${{ matrix.shard }}"
+    runs-on: ${{ github.event.inputs.runner_image || 'ubuntu-22.04' }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 100
+      matrix:
+        shard:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          - 6
+          - 7
+          - 8
+          - 9
+          - 10
+          - 11
+          - 12
+          - 13
+          - 14
+          - 15
+          - 16
+          - 17
+          - 18
+          - 19
+          - 20
+          - 21
+          - 22
+          - 23
+          - 24
+          - 25
+          - 26
+          - 27
+          - 28
+          - 29
+          - 30
+          - 31
+          - 32
+          - 33
+          - 34
+          - 35
+          - 36
+          - 37
+          - 38
+          - 39
+          - 40
+          - 41
+          - 42
+          - 43
+          - 44
+          - 45
+          - 46
+          - 47
+          - 48
+          - 49
+          - 50
+          - 51
+          - 52
+          - 53
+          - 54
+          - 55
+          - 56
+          - 57
+          - 58
+          - 59
+          - 60
+          - 61
+          - 62
+          - 63
+          - 64
+          - 65
+          - 66
+          - 67
+          - 68
+          - 69
+          - 70
+          - 71
+          - 72
+          - 73
+          - 74
+          - 75
+          - 76
+          - 77
+          - 78
+          - 79
+          - 80
+          - 81
+          - 82
+          - 83
+          - 84
+          - 85
+          - 86
+          - 87
+          - 88
+          - 89
+          - 90
+          - 91
+          - 92
+          - 93
+          - 94
+          - 95
+          - 96
+          - 97
+          - 98
+          - 99
+          - 100
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v4
+
+      - name: "Setup Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Run Comprehensive Silicon & Storage Profiler"
+        run: |
+          mkdir -p shard_out
+          python3 scripts/profile_runner.py "${{ matrix.shard }}" shard_out
+
+      - name: "Upload Shard Profile Artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-shard-${{ matrix.shard }}
+          path: shard_out/profile-shard-${{ matrix.shard }}.json
+          retention-days: 7
+
+  aggregate:
+    name: "Aggregate Fleet Census (100 Shards)"
+    needs: profile
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@v4
+
+      - name: "Setup Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Download All Shard Profile Artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          path: all_profiles
+          pattern: profile-shard-*
+          merge-multiple: true
+
+      - name: "Compile Fleet Census & Build Step Summary"
+        run: |
+          python3 scripts/aggregate_profiles.py all_profiles fleet_report.md fleet_census.json
+
+      - name: "Upload Aggregated Fleet Report & Census JSON"
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-census-report
+          path: |
+            fleet_report.md
+            fleet_census.json
+          retention-days: 30
