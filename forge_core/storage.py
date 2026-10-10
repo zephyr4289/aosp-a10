@@ -458,6 +458,14 @@ ROOT_PURGE_PATHS = [
     "~/.cache/Yarn",
     "/var/cache/apt/archives",
     "~/.cache/pre-commit",
+    "/usr/share/dotnet",
+    "/usr/local/lib/android",
+    "/opt/ghc",
+    "/usr/share/swift",
+    "/usr/local/share/boost",
+    "/usr/local/share/powershell",
+    "/usr/local/share/chromium",
+    "/root/.cache",
 ]
 
 
@@ -475,14 +483,27 @@ def emergency_root_purge() -> float:
             try:
                 sz = sum(f.stat().st_size for f in d.rglob("*")
                          if f.is_file())
-                shutil.rmtree(d, ignore_errors=True)
+                if os.access(str(d.parent), os.W_OK):
+                    shutil.rmtree(d, ignore_errors=True)
+                else:
+                    _sudo(["rm", "-rf", str(d)])
+                freed += sz
+            except OSError:
+                pass
+        elif d.is_file():
+            try:
+                sz = d.stat().st_size
+                if os.access(str(d), os.W_OK):
+                    d.unlink(missing_ok=True)
+                else:
+                    _sudo(["rm", "-f", str(d)])
                 freed += sz
             except OSError:
                 pass
     # our own big logs on / — keep the tail, drop the head
     for lg in Path("/tmp").glob("forge-*.log*"):
         try:
-            if lg.stat().st_size > 400 * 1024 * 1024:
+            if lg.stat().st_size > 200 * 1024 * 1024:
                 sz = lg.stat().st_size
                 lg.unlink(missing_ok=True)
                 freed += sz
@@ -490,5 +511,5 @@ def emergency_root_purge() -> float:
             pass
     if freed:
         log.warn(f"root-disk emergency purge freed {freed / 2**30:.1f} GiB "
-                 f"(pip/npm/apt caches + oversized forge logs)")
+                 f"(bloatware SDKs, caches + oversized logs)")
     return freed
