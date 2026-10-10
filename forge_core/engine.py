@@ -615,7 +615,7 @@ def run_slice(plan, build_root: Path, target: str, budget_s: int,
                 if is_milestone:
                     last_milestone_done = done
                     last_milestone_pct = pct
-            else:
+            elif sys.stdout.isatty():
                 spinner = SPINNER_FRAMES[spinner_idx]
                 sys.stdout.write(
                     f"\r[{now_str}] {spinner} {prog_label} {latest_action} | "
