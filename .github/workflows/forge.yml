@@ -211,14 +211,14 @@ jobs:
       - name: "Prepare storage volume"
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -256,14 +256,14 @@ jobs:
       - name: "Prepare storage volume"
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -335,14 +335,14 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -419,14 +419,14 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -503,14 +503,14 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -587,14 +587,14 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -671,14 +671,14 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -755,14 +755,14 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -839,14 +839,14 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -923,14 +923,14 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -1007,14 +1007,14 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -1091,14 +1091,14 @@ jobs:
         if: steps.build_gate.outputs.role == 'builder'
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -1201,14 +1201,14 @@ jobs:
       - name: "Prepare storage volume"
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5
@@ -1244,14 +1244,14 @@ jobs:
       - name: "Prepare storage volume"
         run: |
           sudo systemctl stop docker containerd 2>/dev/null || true
-          sudo rm -rf             /var/lib/docker             /var/lib/containerd             /usr/share/dotnet             /usr/local/lib/android             /opt/ghc             /usr/share/swift             /usr/local/share/boost             /usr/local/share/powershell             /usr/local/share/chromium             /root/.cache 2>/dev/null || true
+          sudo rm -rf /var/lib/docker /var/lib/containerd /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/az /opt/microsoft /usr/local/julia /usr/local/graalvm /usr/share/swift /usr/local/share/boost /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/aws-cli /imagegeneration /root/.cache 2>/dev/null || true
           sudo mkdir -p /mnt/romforge /mnt/romforge/tmp /mnt/romforge/runner_diag /opt/romforge && sudo chmod 1777 /mnt /mnt/romforge /mnt/romforge/tmp /opt /opt/romforge 2>/dev/null || true
           sudo chmod 777 /mnt/romforge/runner_diag 2>/dev/null || true
           sudo mount --bind /mnt/romforge/tmp /tmp 2>/dev/null || true
           for d in /home/runner/actions-runner/_diag /home/runner/actions-runner/cached/*/_diag; do
-            if [ -e "" ] || [ -d "" ]; then
-              sudo rm -rf "" 2>/dev/null || true
-              sudo ln -sfn /mnt/romforge/runner_diag "" 2>/dev/null || true
+            if [ -e "$d" ] || [ -d "$d" ]; then
+              sudo rm -rf "$d" 2>/dev/null || true
+              sudo ln -sfn /mnt/romforge/runner_diag "$d" 2>/dev/null || true
             fi
           done
       - uses: actions/setup-python@v5

@@ -59,6 +59,7 @@ VOL_MNT_NAME = "vol"
 BUILD_DIR_NAME = "aosp"
 TMP_DIR_NAME = "tmp"
 DEFAULT_RESERVE_GB = 10.0
+MAX_CAP_GB = 75.0                   # Logical max cap: 75G compressed takes ~35-42G physical, leaving >35G free for root OS & swap
 MIN_VIABLE_FREE_GB = 25.0           # below this, btrfs mode cannot pay rent
 _COMPRESS_OPTS = "compress=zstd:1,noatime"
 
@@ -248,7 +249,8 @@ def ensure_volume(force: bool = False) -> VolumeState:
         return _plain_state("btrfs-progs unavailable")
 
     if not img.exists():
-        cap = compute_cap_gb(free)
+        raw_cap = compute_cap_gb(free)
+        cap = min(raw_cap, MAX_CAP_GB)
         if cap < 10:
             return _plain_state(
                 f"cap {cap:.0f} GiB too small after reserve "
@@ -262,7 +264,7 @@ def ensure_volume(force: bool = False) -> VolumeState:
         if r.returncode != 0:
             img.unlink(missing_ok=True)
             return _plain_state(f"mkfs.btrfs failed: {r.stderr[:160]}")
-        log.ok(f"build volume: btrfs zstd:1, cap {cap:.0f} GiB "
+        log.ok(f"build volume: btrfs zstd:1, cap {cap:.0f} GiB (max {MAX_CAP_GB:.0f}G) "
                f"({free:.0f} GiB free minus {reserve_gb():.0f} GiB reserve)")
 
     if not _mount_vol(img, mnt):
